@@ -1,0 +1,4 @@
+# Air Drift ESP32 boards: let any user open the serial port.
+# Copy to /etc/udev/rules.d/ then: sudo udevadm control --reload-rules && sudo udevadm trigger
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", MODE="0666"   # ESP32-S3 native USB (Waveshare)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", MODE="0666"   # CH343 USB-serial (DevKitC clones)
