@@ -52,6 +52,7 @@ void updater::loop() {
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.begin(client, url);
   httpUpdate.rebootOnUpdate(false);
+  httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);   // it resets the client's own setting; the release file is behind a redirect
   httpUpdate.onProgress([](int done, int total) {
     static int shown = -1;
     int pct = total > 0 ? done * 100 / total : 0;
