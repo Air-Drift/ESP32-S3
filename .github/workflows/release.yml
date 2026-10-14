@@ -1,0 +1,130 @@
+# Builds every board and attaches ready-to-flash images to a GitHub release,
+# tagged with the version in include/config.h. Runs on a push to main that
+# touches the firmware, and only goes ahead when that version has no release
+# yet: a README edit, or a code change without a version bump, builds nothing.
+# Can also be run by hand from the Actions tab.
+name: Release firmware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'platformio.ini'
+      - 'scripts/release-images.sh'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      new: ${{ steps.v.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(sed -n 's/^#define AD_VERSION *"\([^"]*\)".*/\1/p' include/config.h)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "new=false" >> "$GITHUB_OUTPUT"; echo "v$v is already released; nothing to build"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"; echo "v$v has no release yet; building"
+          fi
+
+  build:
+    needs: version
+    if: needs.version.outputs.new == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [waveshare-185, devkit, devkit-quad]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO and esptool
+        run: pip install --upgrade platformio esptool
+
+      # PlatformIO 6.2 has an intermittent fault in its library builder; a
+      # clean retry gets past it. A real compile error stops at once.
+      - name: Build ${{ matrix.env }}
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8; do
+            rm -rf .pio/build/${{ matrix.env }}
+            if pio run -e ${{ matrix.env }} > build.log 2>&1; then exit 0; fi
+            if grep -qE "^src/.*: error" build.log; then cat build.log; exit 1; fi
+            echo "::warning::build attempt $attempt failed inside PlatformIO; retrying"
+          done
+          cat build.log; exit 1
+
+      - name: Package images
+        run: scripts/release-images.sh ${{ matrix.env }} "${{ needs.version.outputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.env }}
+          path: dist/*.bin
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums and version
+        run: |
+          cd dist
+          echo "${{ needs.version.outputs.version }}" > version.txt
+          sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          gh release create "v$v" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Air Drift for ESP32-S3 $v" --notes-file - <<EOF
+          ## Update a radio that already runs Air Drift
+
+          Open its web page, **Device** tab: it checks for this release by itself and offers **Install it**. The radio downloads the firmware, shows the progress on its screen, and restarts on it. (A radio older than 0.4.0 has no checker: upload \`airdrift-<board>-$v.bin\` on the same tab instead.)
+
+          ## Flash a new Waveshare ESP32-S3-Touch-LCD-1.85
+
+          Plug the board in by USB and write the full image at address 0:
+
+              pip install esptool
+              curl -LO https://github.com/Air-Drift/ESP32-S3/releases/latest/download/airdrift-waveshare-185-full.bin
+              esptool --chip esp32s3 --baud 921600 write-flash 0x0 airdrift-waveshare-185-full.bin
+
+          Then follow the screen: scan the QR code and give it your WiFi. The full image is a fresh start: a radio that already had WiFi forgets it (favourites survive).
+
+          ## Files
+
+          | Board | Full image (new board, address 0) | App only (Device tab update) |
+          |---|---|---|
+          | Waveshare ESP32-S3-Touch-LCD-1.85 / 1.85C | \`airdrift-waveshare-185-$v-full.bin\` | \`airdrift-waveshare-185-$v.bin\` |
+          | DevKitC with octal PSRAM (N16R8, N8R8) | \`airdrift-devkit-$v-full.bin\` | \`airdrift-devkit-$v.bin\` |
+          | DevKitC with quad PSRAM (N8R2, N4R2) | \`airdrift-devkit-quad-$v-full.bin\` | \`airdrift-devkit-quad-$v.bin\` |
+
+          The same files without the version in the name are what \`releases/latest/download/\` serves, so those links never change. \`version.txt\` says which version this is; \`SHA256SUMS.txt\` has the checksums.
+          EOF

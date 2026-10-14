@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include "display.h"
 #include "screenshot.h"
+#include "updater.h"
 
 // The screen as a BMP in base64 between two marker lines, for a script on
 // the other end to decode: the only way to catch the setup screen, which
@@ -76,6 +77,7 @@ static void help() {
     "  wifi <ssid> <password>   join a network (quote a name with spaces)\n"
     "  forget                   erase WiFi and restart into the setup portal\n"
 "  factory                  erase WiFi, favourites and the last station, then restart\n"
+"  update [now]             check the project's releases for a newer firmware; 'now' installs it\n"
 "  screen                   the screen as a BMP, base64, between marker lines\n"
 "  ui <name>                show a screen for a screenshot: home empty list about phone setup busy; ui off\n"
     "  popular | trending       load that list from airdrift.stream\n"
@@ -124,6 +126,15 @@ static void run(const String& cmd) {
   if (op == "help" || op == "?") help();
   else if (op == "status") status();
   else if (op == "wifi") { if (w.size() >= 2) net::setCredentials(w[1], w.size() > 2 ? w[2] : ""); else Serial.println("wifi <ssid> <password>"); }
+  else if (op == "update") {
+    if (w.size() > 1 && w[1] == "now") { Serial.println("fetching the newest release..."); updater::install(); }
+    else {
+      String v, err;
+      if (!updater::latest(v, err)) Serial.println("could not check: " + err);
+      else if (updater::newer(v)) Serial.println("version " + v + " is out (you have " AD_VERSION "): type  update now"); 
+      else Serial.println(v + " is the latest; you have it");
+    }
+  }
   else if (op == "screen") dumpScreen();
   else if (op == "ui") { if (w.size() > 1) display::preview(w[1]); else Serial.println("ui home|empty|list|about|phone|setup|busy|off"); }
   else if (op == "forget") net::forget();

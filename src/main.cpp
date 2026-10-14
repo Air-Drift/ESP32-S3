@@ -15,6 +15,7 @@
 #include "display.h"
 #include "devinfo.h"
 #include "favourites.h"
+#include "updater.h"
 
 static bool resumed = false;
 
@@ -46,6 +47,7 @@ void loop() {
   console::loop();
   controls::loop();
   player::loop();
+  updater::loop();
   display::loop();
   devinfo::loop();
   if (!resumed && net::connected()) {

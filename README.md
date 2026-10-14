@@ -105,22 +105,31 @@ both play the same stations.
 
 ## Quick start
 
-For the Waveshare board, with [PlatformIO](https://platformio.org) installed
-(`pip install platformio`) and the board on USB:
+**Nothing to build.** Every release on the
+[Releases page](https://github.com/Air-Drift/ESP32-S3/releases) has a
+ready-made image for each board, and the newest is always at the same
+address. For the Waveshare board, plug it in by USB and write it at address 0
+with [esptool](https://docs.espressif.com/projects/esptool/):
 
 ```bash
-git clone https://github.com/Air-Drift/ESP32-S3.git
-cd ESP32-S3
-scripts/flash.sh waveshare-185        # builds, checks the image and flashes it
+pip install esptool
+curl -LO https://github.com/Air-Drift/ESP32-S3/releases/latest/download/airdrift-waveshare-185-full.bin
+esptool --chip esp32s3 --baud 921600 write-flash 0x0 airdrift-waveshare-185-full.bin
 ```
 
-The first build downloads the toolchain and the Arduino core, a few hundred
-megabytes. When the screen lights up, follow it: scan the QR code with your
-phone, pick your WiFi, done. From then on the radio is at
-**http://airdrift.local** on your network and on its own screen.
+That one file holds the bootloader, the partition table and the firmware, so
+it works on a board that has never seen Air Drift. It is a fresh start: a
+radio that already had WiFi forgets it (favourites survive), which is why a
+radio that is already running Air Drift updates from its Device tab instead.
+When the screen lights up,
+follow it: scan the QR code with your phone, pick your WiFi, done. From then
+on the radio is at **http://airdrift.local** on your network and on its own
+screen, and later releases install from its Device tab without a cable.
 
-For the custom build, `scripts/flash.sh devkit`, then see
-[First boot](#first-boot).
+For the custom build, the same with `airdrift-devkit-full.bin`
+(or `airdrift-devkit-quad-full.bin` for a board with quad PSRAM), then see
+[First boot](#first-boot). To build from source instead, see
+[Build and flash](#build-and-flash).
 
 ## The screen
 
@@ -204,11 +213,18 @@ the lists load, the stream opens, the titles print.
 
 ## Updating the firmware
 
-Open the radio's page, **Device** tab, **Firmware**. Choose a build
-(`firmware.bin`, which PlatformIO leaves in `.pio/build/<env>/`) and press
-**Update**. The screen says "Updating firmware"; the radio writes the image
-to its spare app partition, checks it, restarts on it, and the page reconnects
-when it is back. About thirty seconds in all. Keep the power on.
+The radio updates itself. Open its page, **Device** tab: it asks the
+[Releases page](https://github.com/Air-Drift/ESP32-S3/releases) what the
+newest version is and, if that is newer than what it runs, offers
+**Install it**. The radio downloads the firmware straight from GitHub, shows
+the progress on its screen, writes it to its spare app partition, checks it
+and restarts on it; the page reconnects when it is back. About a minute in
+all. Keep the power on. On the console, `update` checks and `update now`
+installs.
+
+The same tab takes an upload of your own build (`firmware.bin`, which
+PlatformIO leaves in `.pio/build/<env>/`, or a release's
+`airdrift-<board>.bin`).
 
 From a shell, one step:
 
@@ -219,6 +235,12 @@ scripts/ota.sh devkit 192.168.1.50      # or to an address
 
 Over USB, `scripts/flash.sh` still works and also resets the boot selector
 to the first partition.
+
+**Releases** are built by GitHub Actions: a push to `main` that touches the
+firmware, with a new version in `include/config.h`, builds every board and
+publishes the images under a `v<version>` tag. A change to the README, or
+code without a version bump, builds nothing. `scripts/release-images.sh`
+makes the same images locally in `dist/`.
 
 ## The custom build
 
@@ -338,6 +360,7 @@ fav                      save or unsave the playing station
 resample on|off          48 kHz output through the library's resampler (off: it falls behind)
 core 0|1                 which CPU core decodes
 debug on|off             show the decoder's own messages
+update [now]             check the project's releases for a newer firmware; now installs it
 screen                   the screen as a BMP in base64, between marker lines
 ui <name>                show a screen for a screenshot: home empty list about phone setup busy; ui off
 status | help | reboot
@@ -361,6 +384,8 @@ button on a desk.
 | `GET /api/volume?v=0..21` | volume |
 | `GET /api/fav` | save or unsave the playing station |
 | `GET /api/device` | board, chip, memory, WiFi, CPU load per core, audio pipeline, task list |
+| `GET /api/update/check` | the newest release's version, and whether it is newer than this |
+| `GET /api/update/install` | download the newest release from GitHub and restart on it |
 | `POST /api/update` | the firmware image as a multipart file field: `curl -F firmware=@firmware.bin` |
 | `GET /screen.bmp` | the screen right now (boards with a screen) |
 
@@ -401,6 +426,7 @@ src/display.*                  the Waveshare screen and touch (empty on the devk
 src/boards/es8311.h            the 1.85C's codec bring-up
 src/boards/waveshare185_init.h the panel's init table
 src/webui.*                    the web page and JSON API, firmware upload
+src/updater.*                  firmware from the project's releases, on request
 src/console.*                  serial commands
 src/controls.*                 buttons and encoder
 src/favourites.*               saved stations, in LittleFS

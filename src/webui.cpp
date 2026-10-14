@@ -10,6 +10,7 @@
 #include <Update.h>
 #include "icons.h"
 #include "screenshot.h"
+#include "updater.h"
 #include "display.h"
 #include <ArduinoJson.h>
 
@@ -71,8 +72,10 @@ li .n b .f{color:var(--green);font-size:12px;margin-left:6px}
 <p class="mute">Lists come from <a href="https://airdrift.stream">airdrift.stream</a>. Logos load in your browser, not on the radio.</p>
 </div>
 <div id="device" hidden><div id="stats"></div>
-<div class="card" id="fw"><h2>Firmware</h2><p class="mute" style="margin:0 0 10px">Running <span id="fwver"></span>. Upload a new build (<code>firmware.bin</code> from PlatformIO, or a release) and the radio restarts on it.</p>
-<div class="row" style="margin-top:0"><input type="file" id="fwfile" accept=".bin,application/octet-stream"><button class="p" id="fwgo" onclick="update()">Update</button></div>
+<div class="card" id="fw"><h2>Firmware</h2><p class="mute" style="margin:0 0 10px">Running <span id="fwver"></span>.</p>
+<div class="row" style="margin-top:0"><button id="chk" onclick="checkUpdate()">Check for updates</button><span class="mute" id="chkst"></span></div>
+<p class="mute" style="margin:14px 0 8px">Or upload a build of your own (<code>firmware.bin</code> from PlatformIO, or a release's <code>airdrift-&lt;board&gt;.bin</code>):</p>
+<div class="row" style="margin-top:0"><input type="file" id="fwfile" accept=".bin,application/octet-stream"><button id="fwgo" onclick="update()">Upload</button></div>
 <div class="st" id="fwst"></div></div>
 <p class="mute" id="shot" hidden>The screen right now: <a href="/screen.bmp">screen.bmp</a></p></div>
 </main><script>
@@ -101,7 +104,7 @@ async function toggleFav(b){b.classList.add('wait');try{const r=await (await fet
 function togglePP(b){ppOn=!ppOn;b.innerHTML=ppOn?'&#10074;&#10074;':'&#9654;';go('/api/pause',b)}
 function playLink(b){const v=$('link').value.trim();if(v)go('/api/play?link='+encodeURIComponent(v),b)}
 let view='radio';
-function show(v){view=v;location.hash=v==='device'?'#device':'';$('radio').hidden=v!=='radio';$('device').hidden=v!=='device';$('tabRadio').setAttribute('aria-pressed',v==='radio');$('tabDevice').setAttribute('aria-pressed',v==='device');if(v==='device')device();}
+function show(v){view=v;location.hash=v==='device'?'#device':'';$('radio').hidden=v!=='radio';$('device').hidden=v!=='device';if(v==='device'&&!checked)checkUpdate();$('tabRadio').setAttribute('aria-pressed',v==='radio');$('tabDevice').setAttribute('aria-pressed',v==='device');if(v==='device')device();}
 const kb=n=>n>=1048576?(n/1048576).toFixed(2)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B';
 const dur=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+(h?h+'h ':'')+m+'m '+(s%60)+'s'};
 const sec=(t,rows)=>`<div class="card"><h2>${t}</h2><dl class="kv">${rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>`;
@@ -115,6 +118,18 @@ async function device(){if(view!=='device'||updating)return;try{const d=await (a
   sec('Audio',[['Station',esc(a.station)||'—'],['Stream',a.url?`<a href="${esc(a.url)}" style="color:var(--green)">${esc(a.url)}</a>`:'—'],['State',a.running?(a.paused?'paused':'playing'):'stopped'],['Codec',esc(a.codec)||'—'],['Sample rate',a.sampleRate?a.sampleRate+' Hz':'—'],['Stream buffer',bar(a.buffer,a.bufferSize,`${kb(a.buffer)} of ${kb(a.bufferSize)}`)],['Volume',a.volume+' / 21'],['Decoder core',a.decodeCore],['I2S pins',esc(a.i2s)],['Loaded list',a.list?`${esc(a.list)} (${a.listCount})`:'none']])+
   `<div class="card"><h2>Tasks</h2><table><tr><th>Task</th><th class="r">Core</th><th class="r">Prio</th><th class="r">Stack free</th><th class="r">CPU</th></tr>${(d.tasks||[]).sort((x,y)=>y.cpu-x.cpu).map(t=>`<tr><td>${esc(t.name)}</td><td class="r">${t.core<0?'any':t.core}</td><td class="r">${t.prio}</td><td class="r">${kb(t.stackFree)}</td><td class="r">${t.cpu} %</td></tr>`).join('')}</table></div>`;
  }catch(e){$('stats').innerHTML='<div class="card err">The radio did not answer</div>'}}
+let checked=false;
+async function checkUpdate(){const b=$('chk'),st=$('chkst');b.classList.add('wait');st.textContent='Asking GitHub…';checked=true;
+ try{const r=await (await fetch('/api/update/check')).json();
+  if(r.error)st.textContent='Could not check: '+r.error;
+  else if(r.available)st.innerHTML=`Version ${esc(r.latest)} is out. <button class="p" onclick="installUpdate('${esc(r.latest)}')">Install it</button>`;
+  else st.textContent=`${r.latest} is the latest; you have it.`;
+ }catch(e){st.textContent='The radio did not answer'}b.classList.remove('wait')}
+async function installUpdate(v){updating=true;const st=$('fwst');$('chkst').textContent='';st.textContent=`Downloading ${v}. The screen shows the progress; the radio restarts when it is done.`;
+ try{await fetch('/api/update/install')}catch(e){}
+ await new Promise(r=>setTimeout(r,8000));
+ for(let i=0;i<90;i++){await new Promise(r=>setTimeout(r,2000));try{const s=await (await fetch('/api/state',{cache:'no-store'})).json();if(s.version===v){st.textContent='Now on '+v+'.';location.reload();return}if(s.version){st.textContent='Still on '+s.version+'. The install did not go through; the serial console says why.';updating=false;return}}catch(e){}}
+ st.textContent='The radio has not come back yet. Give it a moment, then reload this page.';updating=false}
 function update(){const f=$('fwfile').files[0];if(!f){$('fwst').textContent='Choose a firmware.bin first.';return}
  if(!/\.bin$/i.test(f.name)){$('fwst').textContent='That is not a .bin file.';return}
  updating=true;$('fwgo').disabled=true;$('fwgo').classList.add('wait');const st=$('fwst');
@@ -258,6 +273,20 @@ void webui::begin() {
   server.on("/api/next", HTTP_GET, [] { player::next(); ok(); });
   server.on("/api/prev", HTTP_GET, [] { player::prev(); ok(); });
   server.on("/api/volume", HTTP_GET, [] { player::setVolume(server.arg("v").toInt()); ok(); });
+  // Updates from the project's releases: what the newest is, and install it.
+  server.on("/api/update/check", HTTP_GET, [] {
+    String v, err; bool ok = updater::latest(v, err);
+    JsonDocument doc;
+    doc["current"] = AD_VERSION;
+    if (ok) { doc["latest"] = v; doc["available"] = updater::newer(v); }
+    else doc["error"] = err;
+    sendJson(doc);
+  });
+  server.on("/api/update/install", HTTP_GET, [] {
+    updater::install();
+    server.sendHeader("Connection", "close");
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
   // Firmware upload: the .bin as a multipart form file, written straight into
   // the spare app partition; the radio restarts on it if the image checks out.
   server.on("/api/update", HTTP_POST, [] {

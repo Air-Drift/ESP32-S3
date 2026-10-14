@@ -2,9 +2,15 @@
 // the board (platformio.ini); this is the file to edit when wiring changes.
 #pragma once
 
-#define AD_VERSION    "0.3.0"
+#define AD_VERSION    "0.4.0"
 #define AD_SITE       "https://airdrift.stream"
 #define AD_USER_AGENT "AirDrift-ESP32/" AD_VERSION " (+https://airdrift.stream)"
+// Where releases live: version.txt says what the newest is, and
+// airdrift-<env>.bin is its firmware for this board (see .github/workflows/release.yml).
+#define UPDATE_BASE   "https://github.com/Air-Drift/ESP32-S3/releases/latest/download/"
+#ifndef AD_ENV
+#define AD_ENV        "devkit"
+#endif
 
 #if defined(BOARD_WAVESHARE_185)
 // ======================================================================
