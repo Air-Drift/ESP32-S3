@@ -111,6 +111,8 @@ bool directory::load(const String& src) {
     if (stations.empty()) error = "no favourites yet";
   } else if (src == "popular" || src == "trending") {
     ok = loadSiteFile(src + ".json", false);
+  } else if (src.startsWith("search:")) {
+    return search(src.substring(7));
   } else if (src.startsWith("country:")) {
     String cc = src.substring(8); cc.toUpperCase();
     ok = loadSiteFile("country/" + cc + ".head.json", true);

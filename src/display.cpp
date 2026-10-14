@@ -216,7 +216,8 @@ static bool listLoading = false, wantLoad = false;
 static String flash;                     // a short note shown for a moment
 static unsigned long flashUntil = 0;
 static unsigned long resetArmedUntil = 0;
-static String busyText;                     // a full-screen notice, e.g. while firmware is written   // the Factory reset pill wants a second tap before this
+static String busyText;                     // a full-screen notice, e.g. while firmware is written
+static String previewName;                  // a screen forced by the console, for screenshots   // the Factory reset pill wants a second tap before this
 static int uiEpoch = 0;                  // bumped whenever the UI itself changes
 
 struct Hit { int x, y, w, h; String id; };
@@ -238,6 +239,8 @@ static void volumeBy(int d) {
 }
 
 static String lastSource = "popular";   // the list to go back to from favourites
+static String wantSource;               // the list the next loop should load
+static String phoneFrom;                // what was playing when the phone screen opened
 
 static void star(int cx, int cy, int r, bool filled, uint16_t colour) {
   // A five-point star as a fan of triangles from the centre.
@@ -276,7 +279,7 @@ static void act(const String& id) {
   else if (id == "list") openList();
   else if (id == "home") { screen = (screen == ABOUT || screen == LIST) ? HOME : HOME; uiEpoch++; }
   else if (id == "about") { screen = ABOUT; uiEpoch++; }
-  else if (id == "phone") { screen = PHONE; uiEpoch++; }
+  else if (id == "phone") { phoneFrom = player::current().url; screen = PHONE; uiEpoch++; }
   else if (id == "reset") {
     if (millis() < resetArmedUntil) net::factoryReset();
     else { resetArmedUntil = millis() + 4000; uiEpoch++; }
@@ -303,7 +306,7 @@ static void act(const String& id) {
     }
   }
   else if (id == "showfavs") { lastSource = directory::source.isEmpty() ? "popular" : directory::source; directory::load("favourites"); listTop = 0; uiEpoch++; }
-  else if (id == "showlist") { listLoading = true; wantLoad = true; listTop = 0; uiEpoch++; }
+  else if (id.startsWith("load:")) { wantSource = id.substring(5); listLoading = true; wantLoad = true; listTop = 0; uiEpoch++; }
 }
 
 // Touch: a press on a volume button acts at once and repeats while held;
@@ -485,7 +488,7 @@ static void drawPhone() {
   brand(42, 20);
   drawQR(pageUrl(), C, 156, 4);
   centred("Scan, or open " HOSTNAME ".local", 256, u8g2_font_helvR12_tf, FG);
-  centred("to pick a station on your phone", 274, u8g2_font_helvR10_tf, DIM);
+  centred("to search and pick on your phone", 274, u8g2_font_helvR10_tf, DIM);
   pill(312, 96, "Back", BTN, FG, "home", u8g2_font_helvB12_tf, 28);
 }
 
@@ -504,7 +507,7 @@ static void drawHome() {
   bool running = player::running();
   brand(50, 22);
 
-  if (s.name.isEmpty()) {
+  if (s.name.isEmpty() || previewName == "empty") {
     // Nothing to control yet: offer the two ways in and nothing else.
     centred("Nothing playing yet", 134, u8g2_font_helvB18_tf, FG);
     pill(190, 200, "Pick a station", ACCENT, 0x0000, "list");
@@ -536,49 +539,54 @@ static void drawHome() {
   button(C + 116, y, 23, "vol+");
 
   // The bottom row: save the playing station, and the station list.
+  // The bottom row: a star that saves the station, and the list.
   int ph = 30, py = 328;
   {
     bool fav = favourites::has(s.id.length() ? s.id : s.url);
-    int pw = 92, gap = 8;
-    int lx = C - gap / 2 - pw, rx = C + gap / 2;
-    gfx->fillRoundRect(lx, py - ph / 2, pw, ph, ph / 2, BTN);
+    int sw = 38, pw = 96, gap = 8, x = C - (sw + gap + pw) / 2;
+    gfx->fillRoundRect(x, py - ph / 2, sw, ph, ph / 2, fav ? ACCENT : BTN);
+    star(x + sw / 2, py, 7, true, fav ? ON_GREEN : ACCENT);
+    addHit(x - 6, py - ph / 2 - 6, sw + 12, ph + 12, "fav");
+    x += sw + gap;
+    gfx->fillRoundRect(x, py - ph / 2, pw, ph, ph / 2, BTN);
     gfx->setFont(u8g2_font_helvB12_tf);
-    String label = fav ? "Saved" : "Save";
-    int w = textWidth(label, u8g2_font_helvB12_tf);
-    int sx = lx + pw / 2 - (w + 18) / 2;
-    star(sx + 6, py, 7, fav, fav ? ACCENT : DIM);
-    gfx->setTextColor(fav ? ACCENT : FG); gfx->setCursor(sx + 18, py + 4); gfx->print(label);
-    addHit(lx - 6, py - ph / 2 - 6, pw + 8, ph + 12, "fav");
-    gfx->fillRoundRect(rx, py - ph / 2, pw, ph, ph / 2, BTN);
-    w = textWidth("Stations", u8g2_font_helvB12_tf);
-    gfx->setTextColor(FG); gfx->setCursor(rx + pw / 2 - w / 2, py + 4); gfx->print("Stations");
-    addHit(rx - 2, py - ph / 2 - 6, pw + 8, ph + 12, "list");
+    int w = textWidth("Stations", u8g2_font_helvB12_tf);
+    gfx->setTextColor(FG); gfx->setCursor(x + pw / 2 - w / 2, py + 4); gfx->print("Stations");
+    addHit(x - 2, py - ph / 2 - 6, pw + 8, ph + 12, "list");
   }
 }
 
 static void drawList() {
-  String src = directory::source;
-  if (src.startsWith("country:")) src = "Country " + src.substring(8);
-  else if (src.startsWith("tag:")) src = src.substring(4);
-  else if (src.startsWith("search:")) src = "Search: " + src.substring(7);
-  else if (src.isEmpty()) src = "Stations";
-  else src[0] = toupper(src[0]);
   brand(36, 18);
-  bool favs = directory::source == "favourites";
-  String other = favs ? (lastSource.isEmpty() ? "Popular" : lastSource) : src;
-  if (other.startsWith("country:")) other = "Country " + other.substring(8);
-  else if (other.startsWith("tag:")) other = other.substring(4);
-  else if (other.startsWith("search:")) other = "Search";
-  else other[0] = toupper(other[0]);
-  int ph = 28, py = 78, pw = 104;
-  gfx->fillRoundRect(C - pw - 4, py - ph / 2, pw, ph, ph / 2, favs ? ACCENT : BTN);
-  centred("", 0, u8g2_font_helvB12_tf, FG);
-  gfx->setFont(u8g2_font_helvB12_tf); gfx->setTextColor(favs ? ON_GREEN : FG);
-  { int w = textWidth("Favourites", u8g2_font_helvB12_tf); gfx->setCursor(C - 4 - pw / 2 - w / 2 + 8, py + 4); gfx->print("Favourites"); star(C - 4 - pw / 2 - w / 2 - 4, py, 6, true, favs ? ON_GREEN : ACCENT); }
-  gfx->fillRoundRect(C + 4, py - ph / 2, pw, ph, ph / 2, favs ? BTN : ACCENT);
-  { String o = fit(other, u8g2_font_helvB12_tf, pw - 16); int w = textWidth(o, u8g2_font_helvB12_tf); gfx->setTextColor(favs ? FG : ON_GREEN); gfx->setCursor(C + 4 + pw / 2 - w / 2, py + 4); gfx->print(o); }
-  addHit(C - pw - 4, py - ph / 2 - 6, pw, ph + 12, favs ? "" : "showfavs");
-  addHit(C + 4, py - ph / 2 - 6, pw, ph + 12, favs ? "showlist" : "");
+  // Three ways in, side by side: Favourites, Popular, and whatever other list
+  // was last loaded (a search, a country, a genre), which keeps its pill so
+  // Popular is never pushed out. The one showing is lit.
+  String src = directory::source;
+  bool favs = src == "favourites";
+  // Three pills, always the same three: Favourites, Popular, and Search,
+  // which has no keyboard here and so opens the QR code for the web page.
+  // The one lit is the list showing; a country or genre loaded from the page
+  // shows its rows with none lit.
+  struct Pill { String id, label; int w; bool on; char icon; };
+  std::vector<Pill> pills;
+  pills.push_back({favs ? "" : "showfavs", "", 38, favs, 's'});
+  pills.push_back({"load:popular", "Popular", 96, src == "popular", 0});
+  pills.push_back({"phone", "", 38, src.startsWith("search:"), 'q'});
+  int ph = 28, py = 78, gap = 6, total = -gap;
+  for (auto& p : pills) total += p.w + gap;
+  int x = C - total / 2;
+  for (auto& p : pills) {
+    uint16_t ink = p.on ? ON_GREEN : p.icon ? ACCENT : FG;
+    gfx->fillRoundRect(x, py - ph / 2, p.w, ph, ph / 2, p.on ? ACCENT : BTN);
+    int cx = x + p.w / 2;
+    if (p.icon == 's') star(cx, py, 7, true, ink);
+    else if (p.icon == 'q') {   // a magnifier
+      for (int r = 5; r <= 6; r++) gfx->drawCircle(cx - 2, py - 2, r, ink);
+      for (int d = 0; d < 2; d++) gfx->drawLine(cx + 2 + d, py + 2, cx + 7 + d, py + 7, ink);
+    } else { int w = textWidth(p.label, u8g2_font_helvB12_tf); gfx->setFont(u8g2_font_helvB12_tf); gfx->setTextColor(ink); gfx->setCursor(cx - w / 2, py + 4); gfx->print(p.label); }
+    addHit(x, py - ph / 2 - 6, p.w, ph + 12, p.on && p.icon != 'q' ? "" : p.id);
+    x += p.w + gap;
+  }
 
   if (listLoading) {
     centred("Loading...", C, u8g2_font_helvR14_tf, DIM);
@@ -624,11 +632,12 @@ static void draw() {
   hits.clear();
   gfx->fillScreen(BG);
   volumeRing(player::volume());
-  if (busyText.length()) {
+  String pv = previewName;
+  if (pv == "busy" || busyText.length()) {
     brand(C - 40, 24);
-    centred(busyText, C + 30, u8g2_font_helvB18_tf, FG);
+    centred(busyText.length() ? busyText : "Updating firmware", C + 30, u8g2_font_helvB18_tf, FG);
     centred("Keep the radio powered", C + 58, u8g2_font_helvR12_tf, DIM);
-  } else if (net::portalOpen()) {
+  } else if (pv == "setup" || (pv.isEmpty() && net::portalOpen())) {
     brand(44, 20);
     centred("Let's get you online", 78, u8g2_font_helvB14_tf, FG);
     drawQR("WIFI:T:nopass;S:" SETUP_AP_NAME ";;", C, 168, 4);   // the tile spans y 98..238
@@ -642,13 +651,13 @@ static void draw() {
       centred("then pick your home WiFi", 280, u8g2_font_helvR10_tf, DIM);
       centred("or join it from WiFi settings", 296, u8g2_font_helvR10_tf, DIM);
     }
-  } else if (!net::connected()) {
+  } else if (pv.isEmpty() && !net::connected()) {
     centred("Connecting to WiFi", C, u8g2_font_helvB18_tf, FG);
-  } else if (screen == LIST) {
+  } else if (pv == "list" || (pv.isEmpty() && screen == LIST)) {
     drawList();
-  } else if (screen == ABOUT) {
+  } else if (pv == "about" || (pv.isEmpty() && screen == ABOUT)) {
     drawAbout();
-  } else if (screen == PHONE) {
+  } else if (pv == "phone" || (pv.isEmpty() && screen == PHONE)) {
     drawPhone();
   } else {
     drawHome();
@@ -685,8 +694,8 @@ void display::loop() {
   if (millis() - last < 100) return;
   last = millis();
   const Station& s = player::current();
-  if (screen == PHONE && !s.url.isEmpty()) { screen = HOME; uiEpoch++; }   // picked on the phone
-  String key = s.name + "|" + busyText + "|" + (net::joining().length() ? String((millis() / 400) % 3) : String("-")) + "|" + player::title() + "|" + player::codec() + "|" + player::volume() + "|" +
+  if (screen == PHONE && s.url != phoneFrom) { screen = HOME; uiEpoch++; }   // a station was picked on the phone
+  String key = s.name + "|" + busyText + previewName + "|" + (net::joining().length() ? String((millis() / 400) % 3) : String("-")) + "|" + player::title() + "|" + player::codec() + "|" + player::volume() + "|" +
                player::running() + player::paused() + "|" + net::connected() + net::portalOpen() + "|" +
                (millis() < flashUntil ? flash : "") + "|" + screen + "|" + listTop + "|" + listLoading + "|" +
                directory::source + "|" + directory::stations.size() + "|" + player::currentIndex() + "|" + uiEpoch +
@@ -694,17 +703,30 @@ void display::loop() {
   if (key != shown) { shown = key; draw(); }
   if (wantLoad) {   // after the "Loading..." frame is on screen
     wantLoad = false;
-    if (net::connected()) directory::load(lastSource.isEmpty() || lastSource == "favourites" ? "popular" : lastSource);
+    String src = wantSource.length() ? wantSource : (lastSource.isEmpty() || lastSource == "favourites" ? "popular" : lastSource);
+    wantSource = "";
+    if (net::connected()) directory::load(src);
     listLoading = false;
     uiEpoch++;
   }
+
 }
 
 // Drawn at once: a firmware upload holds the main loop until it is done.
 void display::busy(const String& text) { busyText = text; uiEpoch++; if (io) draw(); }
+const uint16_t* display::frame() { return io ? gfx->getFramebuffer() : nullptr; }
+int display::side() { return LCD_SIZE; }
+void display::preview(const String& name) {
+  previewName = name == "off" ? "" : name;
+  if (previewName == "list" && directory::stations.empty()) openList();
+  uiEpoch++;
+}
 
 #else
 void display::begin() {}
 void display::loop() {}
 void display::busy(const String&) {}
+const uint16_t* display::frame() { return nullptr; }
+int display::side() { return 0; }
+void display::preview(const String&) {}
 #endif

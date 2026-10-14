@@ -8,6 +8,8 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
+#include "icons.h"
+#include "screenshot.h"
 #include "display.h"
 #include <ArduinoJson.h>
 
@@ -15,7 +17,7 @@ static WebServer server(80);
 static bool started = false;
 
 static const char PAGE[] PROGMEM = R"HTML(<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Air Drift</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -71,7 +73,8 @@ li .n b .f{color:var(--green);font-size:12px;margin-left:6px}
 <div id="device" hidden><div id="stats"></div>
 <div class="card" id="fw"><h2>Firmware</h2><p class="mute" style="margin:0 0 10px">Running <span id="fwver"></span>. Upload a new build (<code>firmware.bin</code> from PlatformIO, or a release) and the radio restarts on it.</p>
 <div class="row" style="margin-top:0"><input type="file" id="fwfile" accept=".bin,application/octet-stream"><button class="p" id="fwgo" onclick="update()">Update</button></div>
-<div class="st" id="fwst"></div></div></div>
+<div class="st" id="fwst"></div></div>
+<p class="mute" id="shot" hidden>The screen right now: <a href="/screen.bmp">screen.bmp</a></p></div>
 </main><script>
 const $=id=>document.getElementById(id);let busy=false,inflight=0,ppOn=false;
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -98,13 +101,13 @@ async function toggleFav(b){b.classList.add('wait');try{const r=await (await fet
 function togglePP(b){ppOn=!ppOn;b.innerHTML=ppOn?'&#10074;&#10074;':'&#9654;';go('/api/pause',b)}
 function playLink(b){const v=$('link').value.trim();if(v)go('/api/play?link='+encodeURIComponent(v),b)}
 let view='radio';
-function show(v){view=v;$('radio').hidden=v!=='radio';$('device').hidden=v!=='device';$('tabRadio').setAttribute('aria-pressed',v==='radio');$('tabDevice').setAttribute('aria-pressed',v==='device');if(v==='device')device();}
+function show(v){view=v;location.hash=v==='device'?'#device':'';$('radio').hidden=v!=='radio';$('device').hidden=v!=='device';$('tabRadio').setAttribute('aria-pressed',v==='radio');$('tabDevice').setAttribute('aria-pressed',v==='device');if(v==='device')device();}
 const kb=n=>n>=1048576?(n/1048576).toFixed(2)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B';
 const dur=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+(h?h+'h ':'')+m+'m '+(s%60)+'s'};
 const sec=(t,rows)=>`<div class="card"><h2>${t}</h2><dl class="kv">${rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>`;
 const bar=(used,total,label)=>`${label}<div class="bar"><i style="width:${total?Math.min(100,100*used/total):0}%"></i></div>`;
 async function device(){if(view!=='device'||updating)return;try{const d=await (await fetch('/api/device')).json();const w=d.wifi||{},a=d.audio||{},c=d.chip||{},f=d.flash||{},h=d.heap||{},p=d.psram||{},u=d.cpu||{};
- $('fwver').textContent=`${d.firmware}, built ${d.built}`;$('stats').innerHTML=
+ $('fwver').textContent=`${d.firmware}, built ${d.built}`;$('shot').hidden=!d.display||d.display==='none';$('stats').innerHTML=
   sec('Board',[['Board',esc(d.board)],['Chip',`${esc(c.model)} rev ${c.revision}, ${c.cores} cores at ${c.mhz} MHz`],['Features',esc(c.features)],['MAC',c.mac],['Flash',`${kb(f.size)} at ${f.mhz} MHz`],['PSRAM',kb(p.size)],['Display',esc(d.display)],['Temperature',(+d.temperature).toFixed(1)+' °C'],['Firmware',`${esc(d.firmware)}, built ${esc(d.built)}`],['ESP-IDF',esc(d.idf)],['Arduino core',esc(d.arduino)],['Uptime',dur(d.uptime)],['Last reset',esc(d.reset)]])+
   sec('Processor',[['Core 0 (WiFi, decoder)',bar(u.core0,100,u.core0+' %')],['Core 1 (app, display)',bar(u.core1,100,u.core1+' %')]])+
   sec('Memory',[['Internal RAM',bar(h.size-h.free,h.size,`${kb(h.size-h.free)} of ${kb(h.size)} used, ${kb(h.free)} free`)],['Lowest free',kb(h.minFree)],['Largest free block',kb(h.maxBlock)],['PSRAM',bar(p.size-p.free,p.size,`${kb(p.size-p.free)} of ${kb(p.size)} used, ${kb(p.free)} free`)],['PSRAM lowest free',kb(p.minFree)],['Program',bar(f.sketch,f.sketch+f.sketchFree,`${kb(f.sketch)} of ${kb(f.sketch+f.sketchFree)}`)]])+
@@ -123,7 +126,7 @@ function update(){const f=$('fwfile').files[0];if(!f){$('fwst').textContent='Cho
  const fd=new FormData();fd.append('firmware',f,f.name);x.send(fd);
  function done(){updating=false;$('fwgo').disabled=false;$('fwgo').classList.remove('wait')}
  async function waitBack(){for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,2000));try{const s=await (await fetch('/api/state',{cache:'no-store'})).json();if(s.version){st.textContent='Back on '+s.version+'.';location.reload();return}}catch(e){}}st.textContent='The radio has not come back yet. Give it a moment, then reload this page.';done()}}
-state();list();setInterval(state,2000);setInterval(device,3000);
+if(location.hash==='#device')show('device');state();list();setInterval(state,2000);setInterval(device,3000);
 </script></body></html>)HTML";
 
 // One client at a time is all this server does, so every answer closes its
@@ -197,8 +200,40 @@ static void handlePlay() {
   if (player::play(s)) ok(); else sendError(player::lastError());
 }
 
+// The logo as the tab icon: the site's icon.svg, following the OS theme.
+static const char FAVICON_SVG[] PROGMEM =
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'>"
+  "<style>.t{fill:#46d98a}.b{stroke:#04150c}@media(prefers-color-scheme:light){.t{fill:#117a47}.b{stroke:#fff}}</style>"
+  "<rect class='t' width='512' height='512' rx='143'/>"
+  "<g class='b' fill='none' stroke-width='2.8' stroke-linecap='round' transform='translate(71.68 71.68) scale(15.36)'>"
+  "<path d='M4 10v4'/><path d='M8 7v10'/><path d='M12 3v18'/><path d='M16 7v10'/><path d='M20 10v4'/></g></svg>";
+
+static void sendIcon(const char* type, const uint8_t* data, size_t len) {
+  server.sendHeader("Connection", "close");
+  server.sendHeader("Cache-Control", "public, max-age=604800");
+  server.send_P(200, type, (const char*)data, len);
+}
+
 void webui::begin() {
   server.on("/", HTTP_GET, [] { server.sendHeader("Connection", "close"); server.send_P(200, "text/html; charset=utf-8", PAGE); });
+  // The screen as it is right now, for documentation and for the curious.
+  server.on("/screen.bmp", HTTP_GET, [] {
+    const uint16_t* fb = display::frame();
+    if (!fb) { server.sendHeader("Connection", "close"); server.send(404, "text/plain", "this board has no screen"); return; }
+    const int N = display::side();
+    uint8_t hdr[BMP_HEADER]; bmpHeader(hdr, N, N);
+    server.sendHeader("Connection", "close");
+    server.sendHeader("Cache-Control", "no-store");
+    server.setContentLength(BMP_HEADER + (size_t)N * N * 2);
+    server.send(200, "image/bmp", "");
+    WiFiClient c = server.client();
+    c.write(hdr, BMP_HEADER);
+    for (int y = N - 1; y >= 0; y--) c.write((const uint8_t*)(fb + (size_t)y * N), N * 2);
+  });
+  server.on("/favicon.svg", HTTP_GET, [] { sendIcon("image/svg+xml", (const uint8_t*)FAVICON_SVG, strlen_P(FAVICON_SVG)); });
+  server.on("/favicon.png", HTTP_GET, [] { sendIcon("image/png", FAVICON_PNG, FAVICON_PNG_len); });
+  server.on("/favicon.ico", HTTP_GET, [] { sendIcon("image/png", FAVICON_PNG, FAVICON_PNG_len); });
+  server.on("/apple-touch-icon.png", HTTP_GET, [] { sendIcon("image/png", TOUCH_ICON_PNG, TOUCH_ICON_PNG_len); });
   server.on("/api/state", HTTP_GET, handleState);
   server.on("/api/device", HTTP_GET, [] { JsonDocument doc; devinfo::fill(doc); sendJson(doc); });
   server.on("/api/list", HTTP_GET, sendList);

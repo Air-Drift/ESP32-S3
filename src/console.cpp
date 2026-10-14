@@ -6,6 +6,44 @@
 #include "favourites.h"
 #include <Arduino.h>
 #include <WiFi.h>
+#include "display.h"
+#include "screenshot.h"
+
+// The screen as a BMP in base64 between two marker lines, for a script on
+// the other end to decode: the only way to catch the setup screen, which
+// shows when there is no WiFi to fetch /screen.bmp over.
+static void dumpScreen() {
+  const uint16_t* fb = display::frame();
+  if (!fb) { Serial.println("this board has no screen"); return; }
+  static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const int N = display::side();
+  uint8_t hdr[BMP_HEADER]; bmpHeader(hdr, N, N);
+  const size_t total = BMP_HEADER + (size_t)N * N * 2;
+  auto byteAt = [&](size_t i) -> uint8_t {
+    if (i < BMP_HEADER) return hdr[i];
+    size_t p = i - BMP_HEADER, px = p / 2;
+    uint16_t v = fb[(size_t)(N - 1 - px / N) * N + px % N];   // bottom-up
+    return (p & 1) ? v >> 8 : v & 0xFF;
+  };
+#if ARDUINO_USB_CDC_ON_BOOT
+  Serial.setTxTimeoutMs(2000);   // never drop a byte of this
+#endif
+  Serial.println("-----BEGIN SCREEN-----");
+  char line[77]; int n = 0;
+  for (size_t i = 0; i < total; i += 3) {
+    uint32_t v = (uint32_t)byteAt(i) << 16 | (i + 1 < total ? byteAt(i + 1) : 0) << 8 | (i + 2 < total ? byteAt(i + 2) : 0);
+    line[n++] = T[v >> 18]; line[n++] = T[(v >> 12) & 63];
+    line[n++] = i + 1 < total ? T[(v >> 6) & 63] : '=';
+    line[n++] = i + 2 < total ? T[v & 63] : '=';
+    if (n == 76) { line[n] = 0; Serial.println(line); n = 0; }
+  }
+  if (n) { line[n] = 0; Serial.println(line); }
+  Serial.println("-----END SCREEN-----");
+  Serial.flush();
+#if ARDUINO_USB_CDC_ON_BOOT
+  Serial.setTxTimeoutMs(5);
+#endif
+}
 
 static String line;
 
@@ -38,6 +76,8 @@ static void help() {
     "  wifi <ssid> <password>   join a network (quote a name with spaces)\n"
     "  forget                   erase WiFi and restart into the setup portal\n"
 "  factory                  erase WiFi, favourites and the last station, then restart\n"
+"  screen                   the screen as a BMP, base64, between marker lines\n"
+"  ui <name>                show a screen for a screenshot: home empty list about phone setup busy; ui off\n"
     "  popular | trending       load that list from airdrift.stream\n"
     "  favourites               load the saved stations\n"
     "  fav                      save or unsave the playing station\n"
@@ -84,6 +124,8 @@ static void run(const String& cmd) {
   if (op == "help" || op == "?") help();
   else if (op == "status") status();
   else if (op == "wifi") { if (w.size() >= 2) net::setCredentials(w[1], w.size() > 2 ? w[2] : ""); else Serial.println("wifi <ssid> <password>"); }
+  else if (op == "screen") dumpScreen();
+  else if (op == "ui") { if (w.size() > 1) display::preview(w[1]); else Serial.println("ui home|empty|list|about|phone|setup|busy|off"); }
   else if (op == "forget") net::forget();
   else if (op == "factory") net::factoryReset();
   else if (op == "popular" || op == "trending" || op == "favourites") loadAndList(op);
