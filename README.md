@@ -499,7 +499,7 @@ The same stations that are on this radio are available on:
 |---|---|
 | **Web** | [airdrift.stream](https://airdrift.stream), in any browser, installable as an app |
 | **iPhone, iPad, Apple TV, Apple Watch, CarPlay** | [Air Drift on the App Store](https://apps.apple.com/app/air-drift/id6816224999) |
-| **Android, Android Auto, Android TV** | [airdrift.stream/apps](https://airdrift.stream/apps) |
+| **Android and Android Auto** | [Air Drift on Google Play](https://play.google.com/store/apps/details?id=stream.airdrift.app) |
 | **Amazon Fire TV and Fire tablets** | [Air Drift on the Amazon Appstore](https://www.amazon.com/dp/B0HLWTBVX2) |
 | **Amazon Alexa and Echo** | ["Alexa, open Air Drift"](https://www.amazon.com/dp/B0HM3JP6ZF) |
 | **Windows** | [Air Drift on the Microsoft Store](https://apps.microsoft.com/detail/9NK2V8WTBJLG) |
