@@ -34,6 +34,7 @@ main{max-width:640px;margin:0 auto;padding:16px}
 .art img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff}.art img[hidden]{display:none}
 #artwrap{display:contents}.now .art{width:56px;height:56px;font-size:17px}li .art{width:36px;height:36px;border-radius:8px;font-size:12px}
 .now .t{min-width:0}.now b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.now .t span{color:var(--fg2);font-size:14px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.now .t span+span{color:var(--mute)}
+.tg{display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer}.tg input{width:20px;height:20px;accent-color:var(--green);margin:0}
 .row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
 button{font:inherit;font-weight:500;border:1px solid var(--line2);background:var(--card);color:var(--fg);border-radius:12px;padding:8px 12px;cursor:pointer}button:hover{border-color:var(--green)}
 button.p{background:var(--green);color:var(--on-green);border-color:var(--green);font-weight:700}button.p:hover{background:var(--green-hi);border-color:var(--green-hi)}
@@ -72,6 +73,8 @@ li .n b .f{color:var(--green);font-size:12px;margin-left:6px}
 <p class="mute">Lists come from <a href="https://airdrift.stream">airdrift.stream</a>. Logos load in your browser, not on the radio.</p>
 </div>
 <div id="device" hidden><div id="stats"></div>
+<div class="card" id="screen" hidden><h2>Screen</h2><label class="tg"><input type="checkbox" id="lp" onchange="lowPower(this.checked)"> Low power mode</label>
+<p class="mute" style="margin:8px 0 0">While a station plays, the screen goes dark after a few seconds instead of showing the visualiser. A touch wakes it.</p></div>
 <div class="card" id="fw"><h2>Firmware</h2><p class="mute" style="margin:0 0 10px">Running <span id="fwver"></span>.</p>
 <div class="row" style="margin-top:0"><button id="chk" onclick="checkUpdate()">Check for updates</button><span class="mute" id="chkst"></span></div>
 <p class="mute" style="margin:14px 0 8px">Or upload a build of your own (<code>firmware.bin</code> from PlatformIO, or a release's <code>airdrift-&lt;board&gt;.bin</code>):</p>
@@ -90,9 +93,11 @@ async function state(force){if(updating||(inflight&&!force))return;try{const s=a
  $('name').textContent=s.name||'Nothing playing';$('title').textContent=s.connecting?'Connecting…':(s.title||'');$('title').style.color=s.connecting?'var(--green)':'';$('codec').textContent=s.codec||'';
  const k=s.name+'|'+s.icon;if(k!==artKey){artKey=k;$('artwrap').innerHTML=s.name?art(s):'<span class="art"></span>';}
  ppOn=s.playing&&!s.paused;$('pp').innerHTML=ppOn?'&#10074;&#10074;':'&#9654;';if(document.activeElement!==$('vol'))$('vol').value=s.volume;
+ if(s.lowPower!==undefined){$('screen').hidden=false;if(document.activeElement!==$('lp'))$('lp').checked=s.lowPower;}
  $('err').textContent=s.error||'';$('fav').innerHTML=s.fav?'&#9733;':'&#9734;';$('fav').classList.toggle('on',!!s.fav);$('fav').hidden=!s.name;$('tabFav').textContent='\u2605 Favourites'+(s.favCount?' ('+s.favCount+')':'');document.querySelectorAll('#list li').forEach((li,i)=>li.classList.toggle('on',i===s.index&&s.source===curSource));
  if(s.source!==curSource&&!busy)list();}catch(e){}}
 let curSource='';
+function lowPower(on){fetch('/api/lowpower?on='+(on?1:0));}
 function render(d){curSource=d.source;$('src').textContent=d.source?d.source.replace(':',': ')+' · '+d.stations.length+' stations':'';
  $('list').innerHTML=d.stations.map((s,i)=>`<li>${art(s)}<div class="n"><b>${esc(s.name)}${s.fav?'<span class="f">&#9733;</span>':''}</b><span>${esc(s.country)} · ${esc(s.codec)} ${s.bitrate||''}</span></div><button onclick="go('/api/play?i=${i}',this)">Play</button></li>`).join('');
  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-pressed',b.textContent.toLowerCase().replace(/[^a-z]/g,'')===(d.source||'').replace(/[^a-z]/g,'')));}
@@ -111,7 +116,7 @@ const sec=(t,rows)=>`<div class="card"><h2>${t}</h2><dl class="kv">${rows.map(([
 const bar=(used,total,label)=>`${label}<div class="bar"><i style="width:${total?Math.min(100,100*used/total):0}%"></i></div>`;
 async function device(){if(view!=='device'||updating)return;try{const d=await (await fetch('/api/device')).json();const w=d.wifi||{},a=d.audio||{},c=d.chip||{},f=d.flash||{},h=d.heap||{},p=d.psram||{},u=d.cpu||{};
  $('fwver').textContent=`${d.firmware}, built ${d.built}`;$('shot').hidden=!d.display||d.display==='none';$('stats').innerHTML=
-  sec('Board',[['Board',esc(d.board)],['Chip',`${esc(c.model)} rev ${c.revision}, ${c.cores} cores at ${c.mhz} MHz`],['Features',esc(c.features)],['MAC',c.mac],['Flash',`${kb(f.size)} at ${f.mhz} MHz`],['PSRAM',kb(p.size)],['Display',esc(d.display)],['Temperature',(+d.temperature).toFixed(1)+' °C'],['Firmware',`${esc(d.firmware)}, built ${esc(d.built)}`],['ESP-IDF',esc(d.idf)],['Arduino core',esc(d.arduino)],['Uptime',dur(d.uptime)],['Last reset',esc(d.reset)]])+
+  sec('Board',[['Board',esc(d.board)],['Chip',`${esc(c.model)} rev ${c.revision}, ${c.cores} cores at ${c.mhz} MHz`],['Features',esc(c.features)],['MAC',c.mac],['Flash',`${kb(f.size)} at ${f.mhz} MHz`],['PSRAM',kb(p.size)],['Display',esc(d.display)],['Temperature',(+d.temperature).toFixed(1)+' °C'],...(d.battery?[['Battery',d.battery.percent<0?'none':bar(d.battery.percent,100,`${d.battery.percent} %, ${(d.battery.mv/1000).toFixed(2)} V${d.battery.usb?', charging from USB':''}`)],['Battery curve',d.battery.learned?'learned from this battery':`generic until a full run${d.battery.runMinutes?` (recording, ${d.battery.runMinutes} min so far)`:''}`]]:[]),['Firmware',`${esc(d.firmware)}, built ${esc(d.built)}`],['ESP-IDF',esc(d.idf)],['Arduino core',esc(d.arduino)],['Uptime',dur(d.uptime)],['Last reset',esc(d.reset)]])+
   sec('Processor',[['Core 0 (WiFi, decoder)',bar(u.core0,100,u.core0+' %')],['Core 1 (app, display)',bar(u.core1,100,u.core1+' %')]])+
   sec('Memory',[['Internal RAM',bar(h.size-h.free,h.size,`${kb(h.size-h.free)} of ${kb(h.size)} used, ${kb(h.free)} free`)],['Lowest free',kb(h.minFree)],['Largest free block',kb(h.maxBlock)],['PSRAM',bar(p.size-p.free,p.size,`${kb(p.size-p.free)} of ${kb(p.size)} used, ${kb(p.free)} free`)],['PSRAM lowest free',kb(p.minFree)],['Program',bar(f.sketch,f.sketch+f.sketchFree,`${kb(f.sketch)} of ${kb(f.sketch+f.sketchFree)}`)]])+
   (w.connected?sec('WiFi',[['Network',esc(w.ssid)],['Signal',bar(Math.max(0,w.rssi+100),70,`${w.rssi} dBm`)],['Channel',w.channel],['Access point',w.bssid],['Address',w.ip],['Gateway',w.gateway],['Subnet',w.mask],['DNS',w.dns],['Hostname',w.hostname],['TX power',w.txPower+' dBm']]):sec('WiFi',[['Status',w.portal?'setup portal open':'not connected']]))+
@@ -188,6 +193,7 @@ static void handleState() {
   doc["title"] = player::title();
   doc["codec"] = player::codec();
   doc["volume"] = player::volume();
+  if (display::side()) doc["lowPower"] = display::lowPower();
   doc["source"] = directory::source;
   doc["index"] = player::currentIndex();
   doc["count"] = directory::stations.size();
@@ -273,6 +279,7 @@ void webui::begin() {
   server.on("/api/next", HTTP_GET, [] { player::next(); ok(); });
   server.on("/api/prev", HTTP_GET, [] { player::prev(); ok(); });
   server.on("/api/volume", HTTP_GET, [] { player::setVolume(server.arg("v").toInt()); ok(); });
+  server.on("/api/lowpower", HTTP_GET, [] { display::setLowPower(server.arg("on") == "1"); ok(); });
   // Updates from the project's releases: what the newest is, and install it.
   server.on("/api/update/check", HTTP_GET, [] {
     String v, err; bool ok = updater::latest(v, err);

@@ -1,6 +1,7 @@
 #include "player.h"
 #include "config.h"
 #include "directory.h"
+#include "spectrum.h"
 #include <Audio.h>
 #include <Preferences.h>
 #ifdef ES8311_ADDR
@@ -164,6 +165,7 @@ static void connectNow() {
   Station s = pendingSt;
   xSemaphoreGive(pendLock);
   pendingSet = false;
+  connectAt = millis();   // the connect itself can take a while: time it from here
   LOCK();
   audio.stopSong();
   Serial.printf("[player] %s  (%s %s %u kbps)\n", s.name.c_str(), s.country.c_str(), s.codec.c_str(), s.bitrate);
@@ -176,7 +178,7 @@ static void connectNow() {
     justConnected = true;
   } else if (wantPlaying) {
     wantPlaying = false; isConnecting = false;
-    lastErr = "could not open the stream";
+    lastErr = "Couldn't open this station";
     Serial.println("[player] " + lastErr);
   }
 }
@@ -260,6 +262,13 @@ void player::resumeLast() {
   if (s.url.length()) play(s);
 }
 
+static void giveUp(const char* why) {
+  lastErr = why;
+  wantPlaying = false; isConnecting = false;
+  wantStop = true;   // the audio task stops it
+  Serial.printf("[player] %s; stopped\n", why);
+}
+
 // A dropped stream comes back on its own: three tries, a few seconds apart.
 static void watchdog() {
   if (!eofFlag) return;
@@ -267,7 +276,7 @@ static void watchdog() {
   if (millis() - eofAt < 4000) return;
   eofFlag = false; eofAt = 0;
   if (!wantPlaying || cur.url.isEmpty()) return;
-  if (retries++ >= 3) { lastErr = "stream ended"; wantPlaying = false; Serial.println("[player] stream ended; giving up"); return; }
+  if (retries++ >= 3) { lastErr = "The station stopped"; wantPlaying = false; Serial.println("[player] stream ended; giving up"); return; }
   Serial.printf("[player] stream ended; reconnecting (%d/3)\n", retries);
   int r = retries;
   player::play(cur, curIndex);
@@ -297,7 +306,16 @@ void loop() {
   if (isConnecting && !pendingSet && millis() - connectAt > 1500) {
     bool running = audio.isRunning() && audio.inBufferFilled() > 4096;
     if (running) isConnecting = false;
-    else if (millis() - connectAt > 20000) { isConnecting = false; if (lastErr.isEmpty()) lastErr = "stream is not answering"; }
+    else if (millis() - connectAt > 15000) giveUp("This station isn't answering");
+  }
+  // Connected is not the same as playing: a station can open and then send
+  // nothing the decoder can use, or stop sending. Silence from the start is
+  // a station that does not work; silence later is a drop, retried as one.
+  if (wantPlaying && !isConnecting && !isPaused && !pendingSet && !eofFlag && millis() - connectAt > 9000) {
+    unsigned long heard = spectrum::heard();
+    bool sinceConnect = (long)(heard - connectAt) > 0;
+    if (!sinceConnect) giveUp("No sound from this station");
+    else if (millis() - heard > 8000) { Serial.println("[player] no sound for 8 s"); eofFlag = true; }
   }
   watchdog();
 }

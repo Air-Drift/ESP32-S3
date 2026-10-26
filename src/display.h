@@ -10,4 +10,6 @@ namespace display {
   const uint16_t* frame();         // the screen's pixels, RGB565, side() square; null without a screen
   int  side();                     // the screen's width and height in pixels, 0 without a screen
   void preview(const String& name); // show a screen by name for screenshots ("off" to stop)
+  void setLowPower(bool on);       // the screen sleeps while a station plays, instead of the visualiser
+  bool lowPower();
 }

@@ -51,10 +51,10 @@ static void fieldsFilter(JsonObject f) {
   f["bitrate"] = true; f["country"] = true; f["hls"] = true; f["icon"] = true;
 }
 
-static void take(JsonArray arr) {
-  directory::stations.clear();
+static void take(JsonArray arr, std::vector<Station>& out) {
+  out.clear();
   for (JsonObject o : arr) {
-    if (directory::stations.size() >= MAX_STATIONS) break;
+    if (out.size() >= MAX_STATIONS) break;
     const char* url = o["url"];
     if (!url || !*url) continue;
     Station s;
@@ -66,12 +66,12 @@ static void take(JsonArray arr) {
     s.icon    = (const char*)(o["icon"] | "");
     s.bitrate = o["bitrate"] | 0;
     s.hls     = (o["hls"] | 0) == 1 || s.url.endsWith(".m3u8");
-    directory::stations.push_back(s);
+    out.push_back(s);
   }
 }
 
 // Site files: popular/trending are bare arrays; .head.json wraps {total, httpsTotal, stations:[...]}.
-static bool loadSiteFile(const String& path, bool wrapped) {
+static bool loadSiteFile(const String& path, bool wrapped, std::vector<Station>& out = directory::stations) {
   String body;
   if (!fetch(String(AD_SITE) + "/data/v1/" + path, body)) return false;
   JsonDocument filter(&psram);
@@ -80,7 +80,7 @@ static bool loadSiteFile(const String& path, bool wrapped) {
   DeserializationError err = deserializeJson(doc, body, DeserializationOption::Filter(filter));
   body = String();
   if (err) { directory::error = String("JSON: ") + err.c_str(); return false; }
-  take(wrapped ? doc["stations"].as<JsonArray>() : doc.as<JsonArray>());
+  take(wrapped ? doc["stations"].as<JsonArray>() : doc.as<JsonArray>(), out);
   return true;
 }
 
@@ -100,6 +100,12 @@ static String tagFile(const String& tag) {
   }
   directory::error = "no genre called \"" + tag + "\" in the directory";
   return "";
+}
+
+bool directory::fetch(const String& src, std::vector<Station>& out) {
+  if (src.startsWith("country:")) { String cc = src.substring(8); cc.toUpperCase(); return loadSiteFile("country/" + cc + ".head.json", true, out); }
+  if (src.startsWith("tag:")) { String f = tagFile(src.substring(4)); return f.length() && loadSiteFile(f + ".head.json", true, out); }
+  return false;
 }
 
 bool directory::load(const String& src) {

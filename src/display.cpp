@@ -11,6 +11,7 @@
 // happens in a framebuffer (Arduino_GFX's canvas, for its fonts and shapes),
 // and the frame is pushed whenever something changed.
 #include <Arduino.h>
+#include <atomic>
 #include <Wire.h>
 #include <Arduino_GFX_Library.h>
 #include <U8g2lib.h>
@@ -23,7 +24,12 @@
 #include "directory.h"
 #include "player.h"
 #include "favourites.h"
+#include "power.h"
+#include "spectrum.h"
+#include "coverart.h"
+#include "drift.h"
 #include <WiFi.h>
+#include <Preferences.h>
 
 static const int C = LCD_SIZE / 2;  // centre
 
@@ -31,10 +37,13 @@ static Arduino_Canvas* gfx = new Arduino_Canvas(LCD_SIZE, LCD_SIZE, nullptr);
 static esp_lcd_panel_io_handle_t io = nullptr;
 // The SPI driver DMAs from internal RAM only, so the frame goes out in row
 // chunks through two small internal buffers, swapped to the panel's byte order.
-static const int CHUNK_ROWS = 20;
+static const int CHUNK_ROWS = 10;   // 2 x 7 KB of internal RAM; TLS needs the rest
 static const size_t CHUNK_BYTES = LCD_SIZE * CHUNK_ROWS * 2;
 static uint16_t* chunk[2] = {nullptr, nullptr};
-static volatile int inFlight = 0;
+// Chunks handed to the SPI driver and not yet sent. The driver's interrupt
+// counts them down while the loop counts them up, so it must be atomic: a lost
+// decrement once left every frame waiting out the timeout (2 fps).
+static std::atomic<int> inFlight{0};
 
 // Air Drift's dark palette (css/app.css in the site), as RGB565.
 static const uint16_t BG = 0x0841;       // surface-000 #08090a
@@ -47,13 +56,30 @@ static const uint16_t RING = 0x2145;     // line-100    #242a2f
 
 // The logo: the green tile with five signal bars, drawn from the site's
 // icon.svg (tile radius 28%, bars on a 24-unit grid across 72% of the tile).
-static void logoTile(int x, int y, int size) {
+// The visualiser passes its own heights, in the same 24-unit grid, to make
+// the bars move with the music.
+static void logoTile(int x, int y, int size, const float* bars = nullptr) {
   gfx->fillRoundRect(x, y, size, size, size * 28 / 100, ACCENT);
   float u = size * 0.72f / 24.0f, off = size * 0.14f;
-  const int heights[5] = {4, 10, 18, 10, 4};
+  const float heights[5] = {4, 10, 18, 10, 4};
+  // Each bar is a rectangle with a round cap at either end: a rounded rect
+  // with a radius of half its width leaves notches at these small sizes.
+  // Small (the header's lockup) they are rounded rects, which read well
+  // there; large (the visualiser's disc) rounded rects grow notches, so the
+  // bars get round caps instead.
+  int r = (int)lroundf(1.4f * u - 0.5f), w = 2 * r + 1;
+  int cy = (int)lroundf(y + off + u * 12);
   for (int i = 0; i < 5; i++) {
-    float cx = x + off + u * (4 + 4 * i), h = heights[i] * u, w = 2.8f * u;
-    gfx->fillRoundRect((int)(cx - w / 2), (int)(y + off + u * 12 - h / 2 - w / 2), (int)w, (int)(h + w), (int)(w / 2), ON_GREEN);
+    float h = (bars ? bars[i] : heights[i]) * u;
+    if (size < 48) {
+      float cxf = x + off + u * (4 + 4 * i), wf = 2.8f * u;
+      gfx->fillRoundRect((int)(cxf - wf / 2), (int)(y + off + u * 12 - h / 2 - wf / 2), (int)wf, (int)(h + wf), (int)(wf / 2), ON_GREEN);
+      continue;
+    }
+    int cx = (int)lroundf(x + off + u * (4 + 4 * i)), half = (int)lroundf(h / 2);
+    gfx->fillRect(cx - r, cy - half, w, 2 * half + 1, ON_GREEN);
+    gfx->fillCircle(cx, cy - half, r, ON_GREEN);
+    gfx->fillCircle(cx, cy + half, r, ON_GREEN);
   }
 }
 
@@ -63,7 +89,7 @@ static void addHit(int x, int y, int w, int h, const String& id);
 // Tapping it always leads home.
 static void brand(int cy, int tile, int cx = C) {
   int16_t x1, y1; uint16_t w1, w2, h;
-  gfx->setFont(u8g2_font_helvB14_tf);
+  gfx->setFont(tile >= 40 ? u8g2_font_helvB24_tf : tile >= 30 ? u8g2_font_helvB18_tf : u8g2_font_helvB14_tf);   // the word grows with the tile
   gfx->getTextBounds("air", 0, 0, &x1, &y1, &w1, &h);
   gfx->getTextBounds("drift", 0, 0, &x1, &y1, &w2, &h);
   int gap = tile / 3, total = tile + gap + w1 + w2;
@@ -141,6 +167,7 @@ static bool panelBegin() {
 static void waitFor(int pending) {
   unsigned long t0 = millis();
   while (inFlight > pending && millis() - t0 < 200) delay(1);
+  if (inFlight > pending) inFlight = pending;   // a completion went missing: carry on rather than stall every frame
 }
 
 static void pushFrame() {
@@ -185,6 +212,11 @@ static bool touchRead(uint8_t& fingers, int& x, int& y) {
   return true;
 }
 
+// INT pulses are short; caught by an interrupt they are not missed while a
+// frame is being pushed (the charge screen animates, so that is often).
+static volatile unsigned long intAt = 0;
+static void IRAM_ATTR onTouchInt() { intAt = millis(); }
+
 static void touchBegin() {
   pinMode(PIN_TP_INT, INPUT_PULLUP);
   Wire.setTimeOut(10);
@@ -200,24 +232,25 @@ static void touchBegin() {
     const uint8_t cfg[][2] = { {0xFA, 0x60}, {0xFE, 0x01} };   // IrqCtl, DisAutoSleep
     for (auto& c : cfg) { tp->beginTransmission(CST816_ADDR); tp->write(c[0]); tp->write(c[1]); tp->endTransmission(true); }
   }
+  if (tp) attachInterrupt(digitalPinToInterrupt(PIN_TP_INT), onTouchInt, FALLING);
   Serial.printf("[display] touch %s\n", tp ? (tp == &Wire ? "on the system bus" : "on its own bus") : "not found");
 }
 
 // ---- The UI ---------------------------------------------------------------
-// Two screens. Home: the station, its title, and a row of round buttons
-// (volume down, previous, play/pause, next, volume up). List: the loaded
-// station list, five rows at a time, tap a row to play. Everything you can
-// tap is drawn, so nothing has to be guessed; swipes are shortcuts.
-enum Screen { HOME, LIST, ABOUT, PHONE };
+// Home is Drift, as on the site: the station and its country, then volume
+// down, Drift and volume up, and two ways on: Remote (the QR code for this
+// radio's page, where the whole directory is) and Favourites (the saved
+// stations, three at a time, and the one playing to add). Every target is a
+// thumb wide; the ring round the edge shows the volume; swipes are shortcuts.
+enum Screen { HOME, FAVS, ABOUT, PHONE };
 static Screen screen = HOME;
-static int listTop = 0;
-static const int ROWS = 5, ROW_H = 40, LIST_Y = 100;
-static bool listLoading = false, wantLoad = false;
+static int favTop = 0;                   // the first favourite showing
+static const int FAV_ROWS = 3;
 static String flash;                     // a short note shown for a moment
 static unsigned long flashUntil = 0;
 static unsigned long resetArmedUntil = 0;
 static String busyText;                     // a full-screen notice, e.g. while firmware is written
-static String previewName;                  // a screen forced by the console, for screenshots   // the Factory reset pill wants a second tap before this
+static String previewName;                  // a screen forced by the console, for screenshots
 static int uiEpoch = 0;                  // bumped whenever the UI itself changes
 
 struct Hit { int x, y, w, h; String id; };
@@ -231,15 +264,8 @@ static String hitAt(int x, int y) {
   return "";
 }
 
-static void note(const String& s) { flash = s; flashUntil = millis() + 1200; uiEpoch++; }
+static void note(const String& s) { flash = s; flashUntil = millis() + 1400; uiEpoch++; }
 
-static void volumeBy(int d) {
-  player::setVolume(player::volume() + d);
-  note("Volume " + String(player::volume()));
-}
-
-static String lastSource = "popular";   // the list to go back to from favourites
-static String wantSource;               // the list the next loop should load
 static String phoneFrom;                // what was playing when the phone screen opened
 
 static void star(int cx, int cy, int r, bool filled, uint16_t colour) {
@@ -262,31 +288,45 @@ static void star(int cx, int cy, int r, bool filled, uint16_t colour) {
   }
 }
 
-static void openList() {
-  screen = LIST;
-  int cur = player::currentIndex();
-  listTop = cur >= 0 ? (cur / ROWS) * ROWS : 0;
-  if (directory::stations.empty()) { listLoading = true; wantLoad = true; }
-  uiEpoch++;
-}
+static void volumeBy(int d);
+static String keyOf(const Station& s) { return s.id.length() ? s.id : s.url; }
 
 static void act(const String& id) {
   if (id == "vol-") volumeBy(-1);
   else if (id == "vol+") volumeBy(+1);
-  else if (id == "prev") { player::prev(); }
-  else if (id == "next") { player::next(); }
   else if (id == "play") player::togglePause();
-  else if (id == "list") openList();
-  else if (id == "home") { screen = (screen == ABOUT || screen == LIST) ? HOME : HOME; uiEpoch++; }
+  else if (id == "drift") { drift::start(""); screen = HOME; uiEpoch++; }
+  else if (id == "favs") {
+    screen = FAVS;
+    int i = 0; favTop = 0;
+    for (const Station& f : favourites::list()) { if (keyOf(f) == keyOf(player::current())) favTop = (i / FAV_ROWS) * FAV_ROWS; i++; }
+    uiEpoch++;
+  }
+  else if (id == "home") { screen = HOME; uiEpoch++; }
   else if (id == "about") { screen = ABOUT; uiEpoch++; }
   else if (id == "phone") { phoneFrom = player::current().url; screen = PHONE; uiEpoch++; }
   else if (id == "reset") {
     if (millis() < resetArmedUntil) net::factoryReset();
     else { resetArmedUntil = millis() + 4000; uiEpoch++; }
   }
-  else if (id == "up") { if (listTop >= ROWS) { listTop -= ROWS; uiEpoch++; } }
-  else if (id == "down") { if (listTop + ROWS < (int)directory::stations.size()) { listTop += ROWS; uiEpoch++; } }
-  else if (id.startsWith("row:")) { player::playIndex(id.substring(4).toInt()); screen = HOME; uiEpoch++; }
+  else if (id == "fup" || id == "up") { if (favTop >= FAV_ROWS) { favTop -= FAV_ROWS; uiEpoch++; } }
+  else if (id == "fdown" || id == "down") { if (favTop + FAV_ROWS < (int)favourites::list().size()) { favTop += FAV_ROWS; uiEpoch++; } }
+  else if (id.startsWith("favplay:")) {
+    // Playing a favourite makes the favourites the list, so next and previous walk them.
+    directory::load("favourites");
+    player::playIndex(id.substring(8).toInt());
+    screen = HOME; uiEpoch++;
+  }
+  else if (id.startsWith("favstar:")) {
+    int i = id.substring(8).toInt();
+    const std::vector<Station>& l = favourites::list();
+    if (i >= 0 && i < (int)l.size()) {
+      favourites::remove(keyOf(l[i]));
+      if (directory::source == "favourites") directory::load("favourites");
+      if (favTop >= (int)favourites::list().size() && favTop >= FAV_ROWS) favTop -= FAV_ROWS;
+      note("Removed from favourites");
+    }
+  }
   else if (id == "fav") {
     const Station& c = player::current();
     if (!c.url.isEmpty()) {
@@ -295,18 +335,7 @@ static void act(const String& id) {
       if (directory::source == "favourites") directory::load("favourites");
     }
   }
-  else if (id.startsWith("star:")) {
-    int i = id.substring(5).toInt();
-    if (i >= 0 && i < (int)directory::stations.size()) {
-      Station s = directory::stations[i];
-      bool now = favourites::toggle(s);
-      note(now ? "Saved" : "Removed");
-      if (directory::source == "favourites") directory::load("favourites");
-      uiEpoch++;
-    }
-  }
-  else if (id == "showfavs") { lastSource = directory::source.isEmpty() ? "popular" : directory::source; directory::load("favourites"); listTop = 0; uiEpoch++; }
-  else if (id.startsWith("load:")) { wantSource = id.substring(5); listLoading = true; wantLoad = true; listTop = 0; uiEpoch++; }
+  else if (id == "radio") power::wake();
 }
 
 // Touch: a press on a volume button acts at once and repeats while held;
@@ -316,11 +345,22 @@ static int px0, py0, pxl, pyl;
 static unsigned long t0 = 0, lastInt = 0, nextRepeat = 0;
 static String pressed;
 static bool held = false;                 // the hold already acted; ignore the release
+static bool dimmed = false;               // the charge screen's backlight is down
+static bool asleep = false;               // low power: the screen is off while a station plays
+static bool lowPowerOn = false;
+static unsigned long touchAt = 0;         // the screen was last touched
+static bool viz = false;                  // the visualiser is showing
 static unsigned long ignoreUntil = 0;     // presses starting before this are ghosts
+
+static void volumeBy(int d) {
+  player::setVolume(player::volume() + d);
+  note("Volume " + String(player::volume()));
+}
 
 static void touchLoop() {
   if (!tp) return;
   if (digitalRead(PIN_TP_INT) == LOW) lastInt = millis();
+  if (intAt > lastInt) lastInt = intAt;
   bool active = millis() - lastInt < 150;  // INT pulses while a finger is down
   if (!active && !down) return;
   static unsigned long last = 0;
@@ -338,11 +378,15 @@ static void touchLoop() {
     if (millis() < ignoreUntil) return;    // the tail of a hold, not a new press
     down = true; px0 = pxl = x; py0 = pyl = y; t0 = millis();
     pressed = hitAt(x, y); held = false;
+    touchAt = millis();
+    if (dimmed) { dimmed = false; ledcWrite(PIN_LCD_BL, 220); held = true; return; }   // this touch only wakes the screen
+    if (asleep) { asleep = false; ledcWrite(PIN_LCD_BL, 220); uiEpoch++; held = true; return; }
+    if (viz) { viz = false; spectrum::enable(false); uiEpoch++; held = true; return; }  // and this one only leaves the visualiser
     if (pressed == "vol-" || pressed == "vol+") { act(pressed); nextRepeat = millis() + 450; }
   } else if (fingers && down) {
     pxl = x; pyl = y;
     if ((pressed == "vol-" || pressed == "vol+") && millis() >= nextRepeat) { act(pressed); nextRepeat = millis() + 160; }
-    if (!held && pressed == "home" && screen == HOME && millis() - t0 >= 600 &&
+    if (!held && pressed == "home" && screen == HOME && !power::standby() && millis() - t0 >= 600 &&
         abs(pxl - px0) < 30 && abs(pyl - py0) < 30) {
       held = true; act("about");          // hold the logo: the connect screen
     }
@@ -353,13 +397,10 @@ static void touchLoop() {
     if (held) { ignoreUntil = millis() + 400; return; }         // the hold already acted
     if (pressed == "vol-" || pressed == "vol+") return;          // already handled
     if (swipe) {
-      if (screen == HOME) {
-        if (abs(dx) > abs(dy)) { if (dx < 0) player::next(); else player::prev(); }
-        else if (dy < 0) openList();
-      } else {
-        if (abs(dy) >= abs(dx)) act(dy < 0 ? "down" : "up");
-        else if (dx > 0) act("home");
-      }
+      bool across = abs(dx) > abs(dy);
+      if (screen == HOME) { if (across) { if (dx < 0) player::next(); else player::prev(); } }
+      else if (screen == FAVS && !across) act(dy < 0 ? "fdown" : "fup");
+      else if (across && dx > 0) act("home");                   // swipe right: back
     } else if (millis() - t0 < 800) {
       act(pressed);
     }
@@ -484,12 +525,11 @@ static void pill(int cy, int w, const String& label, uint16_t bg, uint16_t ink, 
 
 // The phone screen: the page's QR code, for picking a station there.
 static void drawPhone() {
-  addHit(0, 0, LCD_SIZE, LCD_SIZE, "home");
   brand(42, 20);
   drawQR(pageUrl(), C, 156, 4);
-  centred("Scan, or open " HOSTNAME ".local", 256, u8g2_font_helvR12_tf, FG);
-  centred("to search and pick on your phone", 274, u8g2_font_helvR10_tf, DIM);
-  pill(312, 96, "Back", BTN, FG, "home", u8g2_font_helvB12_tf, 28);
+  centred("Scan, or open " HOSTNAME ".local", 252, u8g2_font_helvR12_tf, FG);
+  centred("to pick stations and favourites", 270, u8g2_font_helvR10_tf, DIM);
+  pill(308, 130, "Back", BTN, FG, "home", u8g2_font_helvB14_tf, 44);
 }
 
 static void drawAbout() {
@@ -502,141 +542,370 @@ static void drawAbout() {
   pill(306, armed ? 150 : 120, armed ? "Tap again to reset" : "Factory reset", armed ? ACCENT : BTN, armed ? 0x0000 : FG, "reset", u8g2_font_helvB12_tf, 28);
 }
 
-static void drawHome() {
-  const Station& s = player::current();
-  bool running = player::running();
-  brand(50, 22);
+// A small battery at the top: its level, and the percentage beside it,
+// green while a computer is charging it.
+static void batteryBadge(int cy) {
+  int pct = power::percent();
+  if (pct < 0) return;
+  String t = String(pct) + "%";
+  uint16_t ink = power::usb() ? ACCENT : pct <= 15 ? 0xFA49 : DIM;   // red #ff4a4a when low
+  int tw = textWidth(t, u8g2_font_helvB10_tf), bw = 20, bh = 10, gap = 5;
+  int x = C - (bw + 2 + gap + tw) / 2, y = cy - bh / 2;
+  gfx->drawRoundRect(x, y, bw, bh, 2, ink);
+  gfx->fillRect(x + bw, y + 3, 2, bh - 6, ink);
+  int fill = (bw - 4) * pct / 100;
+  if (fill > 0) gfx->fillRect(x + 2, y + 2, fill, bh - 4, ink);
+  gfx->setFont(u8g2_font_helvB10_tf); gfx->setTextColor(ink);
+  gfx->setCursor(x + bw + 2 + gap, cy + 5); gfx->print(t);
+}
 
-  if (s.name.isEmpty() || previewName == "empty") {
-    // Nothing to control yet: offer the two ways in and nothing else.
-    centred("Nothing playing yet", 134, u8g2_font_helvB18_tf, FG);
-    pill(190, 200, "Pick a station", ACCENT, 0x0000, "list");
-    pill(242, 200, "Use my phone", BTN, FG, "phone");
-    centred("Hold the logo for settings", 300, u8g2_font_helvR10_tf, DIM);
-    return;
-  } else {
-    int y = 108;
-    for (const String& l : wrap(s.name, u8g2_font_helvB24_tf, 290, 2)) { centred(l, y, u8g2_font_helvB24_tf, FG); y += 32; }
-    y += 6;
-    String title = player::title();
-    bool connecting = player::connecting();
-    if (connecting) { title = "Connecting"; for (int d = 0; d <= (int)(millis() / 400) % 3; d++) title += "."; }
-    else if (!running) title = player::paused() ? "Paused" : "Stopped";
-    for (const String& l : wrap(title, u8g2_font_helvR14_tf, 300, 2)) { centred(l, y, u8g2_font_helvR14_tf, connecting ? ACCENT : running ? INK2 : DIM); y += 22; }
-    addHit(30, 80, LCD_SIZE - 60, 150, "list");   // the station text opens the list
-    String meta = player::codec();
-    if (s.country.length()) meta = s.country + (meta.isEmpty() ? "" : "  ·  " + meta);
-    if (millis() >= flashUntil) centred(meta, 296, u8g2_font_helvR10_tf, DIM);
+// Switched on by a USB cable: the battery, and a way into the radio.
+static void drawCharge() {
+  int pct = power::percent();
+  bool charging = power::usb();   // the cable can come out while this screen is up
+  // The ring around the edge is the charge.
+  gfx->fillArc(C, C, C - 1, C - 9, 135, 405, RING);
+  if (pct > 0) gfx->fillArc(C, C, C - 1, C - 9, 135, 135 + 270 * pct / 100, ACCENT);
+  brand(56, 20);
+  bool full = pct >= 100, filling = charging && !full;
+  // A battery that fills: solid to the level it is at, then a paler green
+  // sweeping on to full, over and over, while it charges.
+  int bw = 112, bh = 52, bx = C - bw / 2 - 4, by = 146 - bh / 2;
+  for (int i = 0; i < 3; i++) gfx->drawRoundRect(bx + i, by + i, bw - 2 * i, bh - 2 * i, 10 - i, INK2);
+  gfx->fillRoundRect(bx + bw + 2, by + bh / 2 - 10, 7, 20, 3, INK2);
+  int ix = bx + 7, iy = by + 7, iw = bw - 14, ih = bh - 14;
+  int base = iw * max(pct, 0) / 100;
+  if (filling) {
+    float phase = (millis() % 2000) / 2000.0f;
+    int sweep = base + (int)((iw - base) * phase);
+    if (sweep > 0) gfx->fillRoundRect(ix, iy, sweep, ih, 5, 0x1B48);   // green-800 #1f6b45
   }
-  if (millis() < flashUntil) centred(flash, 298, u8g2_font_helvB14_tf, ACCENT);
+  if (base > 0) gfx->fillRoundRect(ix, iy, base, ih, 5, ACCENT);
+  if (filling) {   // a bolt across it
+    int cx = C - 4, cy = 146;
+    gfx->fillTriangle(cx + 5, cy - 18, cx - 9, cy + 3, cx + 1, cy + 3, FG);
+    gfx->fillTriangle(cx - 1, cy - 3, cx + 9, cy - 3, cx - 5, cy + 18, FG);
+  }
+  if (pct < 0) {
+    // The battery switch is off: it charges, but the level cannot be read.
+    centred("Charging", 214, u8g2_font_helvB18_tf, FG);
+    centred("Battery switch is off, so the level", 238, u8g2_font_helvR12_tf, DIM);
+    centred("shows here when it is on", 256, u8g2_font_helvR12_tf, DIM);
+  } else {
+    centred(String(pct) + "%", 228, u8g2_font_logisoso32_tr, FG);
+    centred(!charging ? "On battery" : full ? "Charged" : "Charging", 256, u8g2_font_helvR14_tf, charging && full ? ACCENT : INK2);
+  }
+  pill(296, 170, "Play radio", ACCENT, 0x0000, "radio");
+}
 
-  // The controls: volume down, previous, play/pause, next, volume up.
-  int y = 238;
-  button(C - 116, y, 23, "vol-");
-  button(C - 58, y, 23, "prev");
-  button(C, y, 28, running && !player::paused() ? "pause" : "play", true);
-  button(C + 58, y, 23, "next");
-  button(C + 116, y, 23, "vol+");
+// ---- The visualiser ------------------------------------------------------
+// Left alone while a station plays, the screen becomes a sunburst: the logo in
+// the middle with its five bars moving to the music (bass in the middle, the
+// highs at the edges), and the spectrum radiating out from it, mirrored, bass
+// at the top. The site's analyser, in the round: fast attack, slow release,
+// a white peak cap on every bar that falls slowly.
+static const int VB = 18;                 // bands each side
+static float vBars[VB], vPeaks[VB];
+static const uint16_t G700 = 0x1CEB, G300 = 0xA799, SLOT = 0x10A2;   // green-700, green-300, an empty slot
 
-  // The bottom row: save the playing station, and the station list.
-  // The bottom row: a star that saves the station, and the list.
-  int ph = 30, py = 328;
-  {
-    bool fav = favourites::has(s.id.length() ? s.id : s.url);
-    int sw = 38, pw = 96, gap = 8, x = C - (sw + gap + pw) / 2;
-    gfx->fillRoundRect(x, py - ph / 2, sw, ph, ph / 2, fav ? ACCENT : BTN);
-    star(x + sw / 2, py, 7, true, fav ? ON_GREEN : ACCENT);
-    addHit(x - 6, py - ph / 2 - 6, sw + 12, ph + 12, "fav");
-    x += sw + gap;
-    gfx->fillRoundRect(x, py - ph / 2, pw, ph, ph / 2, BTN);
-    gfx->setFont(u8g2_font_helvB12_tf);
-    int w = textWidth("Stations", u8g2_font_helvB12_tf);
-    gfx->setTextColor(FG); gfx->setCursor(x + pw / 2 - w / 2, py + 4); gfx->print("Stations");
-    addHit(x - 2, py - ph / 2 - 6, pw + 8, ph + 12, "list");
+// ---- Words round the rim ------------------------------------------------
+// The line is drawn once, flat, into a strip (station in green, then the song
+// in white), and the ring maps every pixel between two radii back onto that
+// strip: its angle is how far along, its radius how far down. A table made
+// once holds each ring pixel's place, so a frame is lookups and a blend.
+static const int RING_OUT = C - 6, RING_IN = RING_OUT - 22;   // the band the words run in
+static const float RING_MID = (RING_IN + RING_OUT) / 2.0f;     // where the strip's scale is true
+struct RingPx { uint32_t at; uint16_t s, r; };                   // framebuffer index; along and down, x16
+static RingPx* ringPx = nullptr;
+static int ringN = 0;
+static Arduino_Canvas* strip = nullptr;
+static int stripW = 0;
+static String stripFor;
+
+static void ringTable() {
+  int n = 0;
+  for (int pass = 0; pass < 2; pass++) {
+    n = 0;
+    for (int y = C - RING_OUT; y < C + RING_OUT; y++)
+      for (int x = C - RING_OUT; x < C + RING_OUT; x++) {
+        float dx = x + 0.5f - C, dy = y + 0.5f - C, r = sqrtf(dx * dx + dy * dy);
+        if (r < RING_IN || r >= RING_OUT) continue;
+        if (pass) {
+          float a = atan2f(dy, dx) + PI / 2;   // 0 at the top, growing clockwise
+          if (a < 0) a += 2 * PI;
+          ringPx[n] = { (uint32_t)(y * LCD_SIZE + x), (uint16_t)(a * RING_MID * 16), (uint16_t)((RING_OUT - r) * 16) };
+        }
+        n++;
+      }
+    if (!pass) ringPx = (RingPx*)heap_caps_malloc(n * sizeof(RingPx), MALLOC_CAP_SPIRAM);
+    if (!ringPx) return;
+  }
+  ringN = n;
+}
+
+static void ringStrip(const String& name, const String& songTitle) {
+  String title = songTitle, title_ = songTitle;
+  const uint8_t* font = u8g2_font_helvB14_tf;
+  String sep = "   \u00b7   ";
+  stripW = (int)(2 * PI * RING_MID);       // one strip pixel per ring pixel at mid radius
+  if (strip) { delete strip; strip = nullptr; }
+  strip = new Arduino_Canvas(stripW, 24, nullptr);
+  if (!strip->begin(GFX_SKIP_OUTPUT_BEGIN)) { delete strip; strip = nullptr; return; }
+  strip->setUTF8Print(true);
+  strip->setFont(font);
+  strip->setTextWrap(false);
+  auto line = [&](int x) {                 // the line once from x; returns where it ends
+    strip->setCursor(x, 18); strip->setTextColor(ACCENT); strip->print(name);
+    strip->setTextColor(DIM); strip->print(sep);
+    if (title.length()) { strip->setTextColor(FG); strip->print(title); strip->setTextColor(DIM); strip->print(sep); }
+    return (int)strip->getCursorX();
+  };
+  // Measured by laying it out: text bounds leave out the separator's spaces.
+  int w = line(0);
+  if (w > stripW && title.length()) {      // longer than the ring: the song gives way, cut with an ellipsis
+    String t = title;
+    while (w > stripW && t.length() > 4) {
+      t.remove(t.length() - 4); t.trim(); t += "...";
+      strip->fillScreen(0);
+      strip->setCursor(0, 18); strip->print(name); strip->print(sep); strip->print(t); strip->print(sep);
+      w = strip->getCursorX();
+      title_ = t;
+    }
+  }
+  strip->fillScreen(0);
+  title = title_;
+  int copies = max(1, stripW / max(1, w));   // short lines go round more than once, evenly
+  float step = (float)stripW / copies;
+  for (int c = 0; c < copies; c++) line((int)(c * step + (step - w) / 2));
+}
+
+static void textRing(const String& name, const String& title) {
+  if (!ringPx) ringTable();
+  if (!ringPx) return;
+  String key = name + "\n" + title;
+  if (key != stripFor || !strip) { stripFor = key; ringStrip(name, title); }
+  if (!strip) return;
+  const uint16_t* sp = strip->getFramebuffer();
+  uint16_t* fb = gfx->getFramebuffer();
+  int W16 = stripW * 16;
+  int shift = (int)((millis() / 25) % stripW) * 16;   // 40 px a second, clockwise
+  for (int i = 0; i < ringN; i++) {
+    const RingPx& p = ringPx[i];
+    int s = (int)p.s - shift; if (s < 0) s += W16;
+    int sx = s >> 4, sy = p.r >> 4, fx = s & 15, fy = p.r & 15;
+    if (sy >= 23) continue;
+    // Bilinear between the four strip pixels around the point, per channel.
+    int sx1 = sx + 1 == stripW ? 0 : sx + 1;
+    uint16_t a = sp[sy * stripW + sx], b = sp[sy * stripW + sx1], c = sp[(sy + 1) * stripW + sx], d = sp[(sy + 1) * stripW + sx1];
+    if (!(a | b | c | d)) continue;
+    int w00 = (16 - fx) * (16 - fy), w10 = fx * (16 - fy), w01 = (16 - fx) * fy, w11 = fx * fy;
+    int r = ((a >> 11) * w00 + (b >> 11) * w10 + (c >> 11) * w01 + (d >> 11) * w11) >> 8;
+    int g = (((a >> 5) & 63) * w00 + ((b >> 5) & 63) * w10 + ((c >> 5) & 63) * w01 + ((d >> 5) & 63) * w11) >> 8;
+    int bl = ((a & 31) * w00 + (b & 31) * w10 + (c & 31) * w01 + (d & 31) * w11) >> 8;
+    fb[p.at] = (r << 11) | (g << 5) | bl;
   }
 }
 
-static void drawList() {
-  brand(36, 18);
-  // Three ways in, side by side: Favourites, Popular, and whatever other list
-  // was last loaded (a search, a country, a genre), which keeps its pill so
-  // Popular is never pushed out. The one showing is lit.
-  String src = directory::source;
-  bool favs = src == "favourites";
-  // Three pills, always the same three: Favourites, Popular, and Search,
-  // which has no keyboard here and so opens the QR code for the web page.
-  // The one lit is the list showing; a country or genre loaded from the page
-  // shows its rows with none lit.
-  struct Pill { String id, label; int w; bool on; char icon; };
-  std::vector<Pill> pills;
-  pills.push_back({favs ? "" : "showfavs", "", 38, favs, 's'});
-  pills.push_back({"load:popular", "Popular", 96, src == "popular", 0});
-  pills.push_back({"phone", "", 38, src.startsWith("search:"), 'q'});
-  int ph = 28, py = 78, gap = 6, total = -gap;
-  for (auto& p : pills) total += p.w + gap;
-  int x = C - total / 2;
-  for (auto& p : pills) {
-    uint16_t ink = p.on ? ON_GREEN : p.icon ? ACCENT : FG;
-    gfx->fillRoundRect(x, py - ph / 2, p.w, ph, ph / 2, p.on ? ACCENT : BTN);
-    int cx = x + p.w / 2;
-    if (p.icon == 's') star(cx, py, 7, true, ink);
-    else if (p.icon == 'q') {   // a magnifier
-      for (int r = 5; r <= 6; r++) gfx->drawCircle(cx - 2, py - 2, r, ink);
-      for (int d = 0; d < 2; d++) gfx->drawLine(cx + 2 + d, py + 2, cx + 7 + d, py + 7, ink);
-    } else { int w = textWidth(p.label, u8g2_font_helvB12_tf); gfx->setFont(u8g2_font_helvB12_tf); gfx->setTextColor(ink); gfx->setCursor(cx - w / 2, py + 4); gfx->print(p.label); }
-    addHit(x, py - ph / 2 - 6, p.w, ph + 12, p.on && p.icon != 'q' ? "" : p.id);
-    x += p.w + gap;
+static void ray(float a, float r0, float r1, float w, uint16_t c) {
+  if (r1 <= r0) return;
+  float ca = cosf(a), sa = sinf(a), px = -sa * w / 2, py = ca * w / 2;
+  float x0 = C + ca * r0, y0 = C + sa * r0, x1 = C + ca * r1, y1 = C + sa * r1;
+  gfx->fillTriangle(x0 + px, y0 + py, x0 - px, y0 - py, x1 + px, y1 + py, c);
+  gfx->fillTriangle(x0 - px, y0 - py, x1 - px, y1 - py, x1 + px, y1 + py, c);
+}
+
+static void drawViz() {
+  float in[VB] = {0};
+  bool live = spectrum::read(in, VB, player::sampleRate());
+  for (int b = 0; b < VB; b++) {
+    float t = live ? in[b] : 0;
+    vBars[b] = t > vBars[b] ? t : vBars[b] + (t - vBars[b]) * 0.3f;
+    vPeaks[b] = max(vPeaks[b] - 0.02f, vBars[b]);
+  }
+  const float R0 = 74, LEN = RING_IN - R0 - 6, W = 7;   // up to the ring of words
+  for (int side = -1; side <= 1; side += 2)
+    for (int b = 0; b < VB; b++) {
+      float a = -PI / 2 + side * (b + 0.5f) * PI / VB;
+      float r = R0 + 2 + vBars[b] * LEN, pk = R0 + 2 + vPeaks[b] * LEN;
+      ray(a, R0, r, W, G700);
+      ray(a, R0 + (r - R0) * 0.45f, r, W, ACCENT);
+      ray(a, max(R0, r - 3), r, W, G300);
+      if (vPeaks[b] > 0.06f) ray(a, pk + 2, pk + 4, W, FG);
+    }
+  // The song's cover when MusicBrainz knows it, as a disc; else the logo.
+  int side = 0;
+  if (const uint16_t* art = coverart::image(side)) {
+    int r = min(58, side / 2), x0 = C - side / 2, y0 = C - side / 2;
+    for (int y = -r; y <= r; y++) {
+      int span = (int)sqrtf((float)(r * r - y * y)), sy = C + y - y0;
+      for (int x = -span; x <= span; x++) gfx->writePixelPreclipped(C + x, C + y, art[sy * 128 + (C + x - x0)]);
+    }
+    coverart::release();
+    gfx->drawCircle(C, C, r, BG); gfx->drawCircle(C, C, r + 1, BG);
+  } else {
+    // No cover: the logo as a disc the same size, its green with the five bars.
+    gfx->fillCircle(C, C, 58, ACCENT);
+    logoTile(C - 39, C - 39, 78);
   }
 
-  if (listLoading) {
-    centred("Loading...", C, u8g2_font_helvR14_tf, DIM);
+  // Round the rim, like the words on a record's label: the station and the
+  // song, going round.
+  const Station& s = player::current();
+  String title = player::title();
+  textRing(s.country.length() ? s.name + ", " + drift::countryName(s.country) : s.name, title);
+}
+
+// ---- Drift on the menu ---------------------------------------------------
+// No animation here (the visualiser is the moving picture): while it looks
+// for a station a line says so, and when it lands the station and its
+// country show as for any other.
+static bool tunerShowing() {
+  drift::State d = drift::state();
+  return d == drift::TUNING || d == drift::FAILED && millis() - drift::since() < 4000;
+}
+
+static void drawTuner() {
+  String mood = drift::mood();
+  if (drift::state() == drift::FAILED) {
+    centred("No signal", 92, u8g2_font_helvB18_tf, FG);
+    centred(fit(drift::message(), u8g2_font_helvR12_tf, 250), 116, u8g2_font_helvR12_tf, DIM);
     return;
   }
-  int n = directory::stations.size();
+  centred(mood.length() ? "Drifting to " + mood : String("Drifting"), 92, u8g2_font_helvB18_tf, FG);
+  if (drift::message().length()) centred(fit(drift::message(), u8g2_font_helvR12_tf, 250), 116, u8g2_font_helvR12_tf, DIM);
+}
+
+// A big round button, with its icon; registered as a tap target.
+static void bigButton(int cx, int cy, int r, const String& id, uint16_t bg, bool enabled = true) {
+  gfx->fillCircle(cx, cy, r, enabled ? bg : BTN);
+  uint16_t ink = bg == ACCENT && enabled ? ON_GREEN : enabled ? FG : DIM;
+  if (id == "fav" || id == "faved") star(cx, cy, r * 45 / 100, true, id == "faved" ? ON_GREEN : enabled ? ACCENT : DIM);
+  else if (id == "vol-") gfx->fillRoundRect(cx - 14, cy - 3, 28, 6, 3, ink);
+  else if (id == "vol+") { gfx->fillRoundRect(cx - 14, cy - 3, 28, 6, 3, ink); gfx->fillRoundRect(cx - 3, cy - 14, 6, 28, 3, ink); }
+  else if (id == "play") gfx->fillTriangle(cx - 11, cy - 17, cx - 11, cy + 17, cx + 17, cy, ink);
+  else if (id == "pause") { gfx->fillRoundRect(cx - 13, cy - 16, 10, 32, 3, ink); gfx->fillRoundRect(cx + 3, cy - 16, 10, 32, 3, ink); }
+  if (enabled) addHit(cx - r - 6, cy - r - 6, 2 * r + 12, 2 * r + 12, id == "faved" ? "fav" : id == "pause" ? "play" : id);
+}
+
+// Home: the station (no song: the visualiser has that), then the three big
+// buttons and the two ways on. The battery sits in the volume ring's gap.
+static void drawHome() {
+  const Station& s = player::current();
+  bool nothing = s.name.isEmpty() || previewName == "empty";
+  volumeRing(player::volume());
+  batteryBadge(332);
+  brand(40, 30);
+
+  if (tunerShowing()) {
+    drawTuner();
+  } else if (nothing) {
+    centred("Press Drift to land", 84, u8g2_font_helvB18_tf, FG);
+    centred("somewhere new", 108, u8g2_font_helvB18_tf, FG);
+  } else {
+    centred(fit(s.name, u8g2_font_helvB18_tf, 250), 92, u8g2_font_helvB18_tf, FG);
+    String state = s.country.length() ? drift::countryName(s.country) : String();
+    uint16_t ink = DIM;
+    if (player::connecting()) { state = "Connecting..."; ink = ACCENT; }
+    else if (!player::running()) state = player::paused() ? "Paused" : player::lastError().length() ? player::lastError() : "Stopped";
+    if (millis() >= flashUntil) centred(fit(state, u8g2_font_helvR12_tf, 240), 116, u8g2_font_helvR12_tf, ink);
+  }
+  if (millis() < flashUntil) centred(flash, 116, u8g2_font_helvB12_tf, ACCENT);
+
+  // Volume down, Drift, volume up, with room between. Stopping is the power
+  // switch's job.
+  int y = 180;
+  bigButton(C - 114, y, 36, "vol-", BTN);
+  bigButton(C + 114, y, 36, "vol+", BTN);
+  int dw = 138, dh = 72;
+  gfx->fillRoundRect(C - dw / 2, y - dh / 2, dw, dh, dh / 2, ACCENT);
+  centred("Drift", y + 9, u8g2_font_helvB24_tf, ON_GREEN);
+  addHit(C - dw / 2 - 4, y - dh / 2 - 10, dw + 8, dh + 20, drift::state() == drift::TUNING ? "" : "drift");
+
+  // Two ways on, inside the ring at this height: Remote (the QR code for
+  // this radio's page, where the whole directory is) and the favourites.
+  int py = 266, pw = 106, ph = 52, gap = 12;
+  int lx = C - gap / 2 - pw, rx = C + gap / 2;
+  gfx->fillRoundRect(lx, py - ph / 2, pw, ph, ph / 2, BTN);
+  gfx->fillRoundRect(rx, py - ph / 2, pw, ph, ph / 2, BTN);
+  gfx->setFont(u8g2_font_helvB14_tf); gfx->setTextColor(FG);
+  int w = textWidth("Remote", u8g2_font_helvB14_tf);
+  gfx->setCursor(lx + pw / 2 - w / 2, py + 6); gfx->print("Remote");
+  const uint8_t* ff = textWidth("Favourites", u8g2_font_helvB14_tf) <= pw - 12 ? u8g2_font_helvB14_tf : u8g2_font_helvB12_tf;
+  gfx->setFont(ff);
+  w = textWidth("Favourites", ff);
+  gfx->setCursor(rx + pw / 2 - w / 2, py + 6); gfx->print("Favourites");
+  addHit(lx - 4, py - ph / 2 - 8, pw + 4 + gap / 2, ph + 16, "phone");
+  addHit(rx - gap / 2, py - ph / 2 - 8, pw + 4 + gap / 2, ph + 16, "favs");
+}
+
+// A round button with a chevron pointing back, leading home.
+static void backButton(int cx, int cy, int r) {
+  gfx->fillCircle(cx, cy, r, BTN);
+  int a = r * 4 / 10;
+  for (int k = -1; k <= 1; k++) {
+    gfx->drawLine(cx + a / 2 + k, cy - a, cx - a / 2 - 1 + k, cy, FG);
+    gfx->drawLine(cx - a / 2 - 1 + k, cy, cx + a / 2 + k, cy + a, FG);
+  }
+  addHit(cx - r - 10, cy - r - 10, 2 * r + 20, 2 * r + 20, "home");
+}
+
+// The saved stations, three at a time: tap one to play it, its star to let
+// it go. Above them, the station playing, to add when it is not there yet.
+static void drawFavs() {
+  centred("Favourites", 50, u8g2_font_helvB14_tf, FG);
+  backButton(C - 72, 47, 20);   // left of the title, clear of the rim
+  addHit(C - 70, 26, 140, 34, "home");   // the title leads back too
+  const std::vector<Station>& l = favourites::list();
+  const Station& now = player::current();
+  bool canAdd = now.url.length() && !favourites::has(keyOf(now));
+  int top = 70;
+  if (canAdd) {
+    int w = 260, h = 44, cy = 94, x0 = C - w / 2;
+    gfx->drawRoundRect(x0, cy - h / 2, w, h, h / 2, ACCENT);
+    for (int k = 0; k < 2; k++) star(x0 + 26, cy, 9 - k, false, ACCENT);
+    gfx->setFont(u8g2_font_helvB12_tf); gfx->setTextColor(ACCENT);
+    gfx->setCursor(x0 + 44, cy + 5); gfx->print(fit("Add " + now.name, u8g2_font_helvB12_tf, w - 64));
+    addHit(x0, cy - h / 2 - 6, w, h + 12, "fav");
+    top = 124;
+  }
+  int n = l.size();
   if (!n) {
-    if (favs) {
-      centred("No favourites yet", C - 10, u8g2_font_helvR14_tf, DIM);
-      centred("Tap the star while a station plays", C + 14, u8g2_font_helvR10_tf, DIM);
-    } else {
-      centred("No stations loaded", C - 10, u8g2_font_helvR14_tf, DIM);
-      centred("Pick a list at airdrift.local", C + 14, u8g2_font_helvR10_tf, DIM);
-    }
-    return;
+    centred("No favourites yet", top + 50, u8g2_font_helvB18_tf, FG);
+    centred("Add the station playing,", top + 80, u8g2_font_helvR12_tf, DIM);
+    centred("or on your phone", top + 98, u8g2_font_helvR12_tf, DIM);
   }
-  if (!directory::error.isEmpty() && n == 0) centred(directory::error, C, u8g2_font_helvR10_tf, DIM);
-  int cur = player::currentIndex();
-  for (int r = 0; r < ROWS && listTop + r < n; r++) {
-    int i = listTop + r;
-    int top = LIST_Y + r * ROW_H, cy = top + ROW_H / 2;
-    const Station& s = directory::stations[i];
-    bool on = i == cur;
-    int w = chord(cy, 26);
-    if (on) gfx->fillRoundRect(C - w / 2, top + 3, w, ROW_H - 6, 10, BTN);
-    gfx->drawFastHLine(C - w / 2 + 8, top + ROW_H - 1, w - 16, RING);
-    bool fav = favourites::has(s.id.length() ? s.id : s.url);
-    String name = fit(s.name, u8g2_font_helvR14_tf, w - 56);
-    gfx->setFont(u8g2_font_helvR14_tf); gfx->setTextColor(on ? ACCENT : FG);
-    gfx->setCursor(C - w / 2 + 14, cy + 5); gfx->print(name);
-    star(C + w / 2 - 20, cy, 8, fav, fav ? ACCENT : RING);
-    addHit(C - w / 2, top, w - 40, ROW_H, "row:" + String(i));
-    addHit(C + w / 2 - 40, top, 40, ROW_H, "star:" + String(i));
+  const int ROW_H = 54;
+  String cur = keyOf(now);
+  for (int r = 0; r < FAV_ROWS && favTop + r < n; r++) {
+    int i = favTop + r, rt = top + r * ROW_H, cy = rt + ROW_H / 2;
+    const Station& st = l[i];
+    bool on = keyOf(st) == cur;
+    int w = min(chord(cy, 22), 290), x0 = C - w / 2;
+    gfx->fillRoundRect(x0, rt + 3, w, ROW_H - 6, 14, on ? 0x2A27 : BTN);   // the playing one, lit a little
+    gfx->setFont(u8g2_font_helvB14_tf); gfx->setTextColor(on ? ACCENT : FG);
+    gfx->setCursor(x0 + 16, cy + 6); gfx->print(fit(st.name, u8g2_font_helvB14_tf, w - 72));
+    star(x0 + w - 26, cy, 10, true, ACCENT);
+    addHit(x0, rt + 1, w - 52, ROW_H - 2, "favplay:" + String(i));
+    addHit(x0 + w - 52, rt + 1, 52, ROW_H - 2, "favstar:" + String(i));
   }
-  int page = listTop / ROWS + 1, pages = (n + ROWS - 1) / ROWS;
-  int y = 320;
-  if (listTop >= ROWS) button(C - 60, y, 17, "up");
-  if (listTop + ROWS < n) button(C + 60, y, 17, "down");
-  centred(String(page) + " / " + pages, y + 5, u8g2_font_helvR10_tf, DIM);
+  if (n > FAV_ROWS) {
+    int y = top + FAV_ROWS * ROW_H + 26;
+    if (favTop >= FAV_ROWS) button(C - 70, y, 22, "up");
+    if (favTop + FAV_ROWS < n) button(C + 70, y, 22, "down");
+    centred(String(favTop / FAV_ROWS + 1) + " / " + String((n + FAV_ROWS - 1) / FAV_ROWS), y + 5, u8g2_font_helvR12_tf, DIM);
+  }
 }
 
 static void draw() {
   hits.clear();
   gfx->fillScreen(BG);
-  volumeRing(player::volume());
   String pv = previewName;
+  if (!busyText.length() && (pv == "charge" || (pv.isEmpty() && power::standby()))) { drawCharge(); pushFrame(); return; }
+  if (!busyText.length() && pv.isEmpty() && viz) { drawViz(); pushFrame(); return; }
   if (pv == "busy" || busyText.length()) {
-    brand(C - 40, 24);
+    brand(C - 44, 46);
     centred(busyText.length() ? busyText : "Updating firmware", C + 30, u8g2_font_helvB18_tf, FG);
-    centred("Keep the radio powered", C + 58, u8g2_font_helvR12_tf, DIM);
+    centred(busyText.startsWith("Starting") ? "Joining WiFi" : "Keep the radio powered", C + 58, u8g2_font_helvR12_tf, DIM);
   } else if (pv == "setup" || (pv.isEmpty() && net::portalOpen())) {
     brand(44, 20);
     centred("Let's get you online", 78, u8g2_font_helvB14_tf, FG);
@@ -653,8 +922,8 @@ static void draw() {
     }
   } else if (pv.isEmpty() && !net::connected()) {
     centred("Connecting to WiFi", C, u8g2_font_helvB18_tf, FG);
-  } else if (pv == "list" || (pv.isEmpty() && screen == LIST)) {
-    drawList();
+  } else if (pv == "favs" || (pv.isEmpty() && screen == FAVS)) {
+    drawFavs();
   } else if (pv == "about" || (pv.isEmpty() && screen == ABOUT)) {
     drawAbout();
   } else if (pv == "phone" || (pv.isEmpty() && screen == PHONE)) {
@@ -683,42 +952,67 @@ void display::begin() {
   pushFrame();
   ledcWrite(PIN_LCD_BL, 220);
   touchBegin();
+  Preferences p; p.begin("display", true); lowPowerOn = p.getBool("lowpower", false); p.end();
   Serial.println("[display] ready");
 }
 
 void display::loop() {
   if (!io) return;
+  bool standing = power::standby();
   touchLoop();
+  if (standing && !power::standby()) return;   // "Play radio": the player is not up until main starts it
   static unsigned long last = 0;
   static String shown;
-  if (millis() - last < 100) return;
+  if (millis() - last < (viz ? 33UL : 100UL)) return;
   last = millis();
+  if (power::standby()) {
+    // Nothing of the radio has started: only the battery changes. The screen
+    // dims after a minute; a touch brings it back (and does no more).
+    if (!dimmed && millis() - touchAt > 60000) { dimmed = true; ledcWrite(PIN_LCD_BL, 18); }
+    int pct = power::percent();
+    String frame = pct < 100 && power::usb() && !dimmed ? String(millis() / 100) : "-";   // the fill moves while it charges
+    String key = String(pct) + "|" + power::usb() + "|" + busyText + "|" + previewName + "|" + uiEpoch + "|" + frame;
+    if (key != shown) { shown = key; draw(); }
+    return;
+  }
+  if (dimmed) { dimmed = false; ledcWrite(PIN_LCD_BL, 220); }
   const Station& s = player::current();
   if (screen == PHONE && s.url != phoneFrom) { screen = HOME; uiEpoch++; }   // a station was picked on the phone
-  String key = s.name + "|" + busyText + previewName + "|" + (net::joining().length() ? String((millis() / 400) % 3) : String("-")) + "|" + player::title() + "|" + player::codec() + "|" + player::volume() + "|" +
+  // The visualiser: on the home screen, playing, untouched for a few seconds.
+  bool canViz = screen == HOME && previewName.isEmpty() && busyText.isEmpty() && net::connected() && !net::portalOpen() &&
+                player::running() && !player::paused() && !player::connecting() && millis() >= flashUntil && !tunerShowing();
+  if (viz && (!canViz || lowPowerOn)) { viz = false; spectrum::enable(false); uiEpoch++; }
+  // Low power: the same moment puts the screen to sleep instead. It wakes on a
+  // touch, or when there is something to see (the station stopped or failed).
+  if (asleep && !canViz) { asleep = false; ledcWrite(PIN_LCD_BL, 220); uiEpoch++; }
+  if (lowPowerOn && !asleep && canViz && !down && millis() - touchAt > 8000) { asleep = true; ledcWrite(PIN_LCD_BL, 0); }
+  if (asleep) return;
+  if (!lowPowerOn && !viz && canViz && !down && millis() - touchAt > 8000) { viz = true; spectrum::enable(true); }
+  if (viz) { draw(); shown = ""; return; }
+  String key = String(power::percent()) + power::usb() + "|" + s.name + "|" + busyText + previewName + "|" + (net::joining().length() ? String((millis() / 400) % 3) : String("-")) + "|" + player::title() + "|" + player::codec() + "|" + player::volume() + "|" +
                player::running() + player::paused() + "|" + net::connected() + net::portalOpen() + "|" +
-               (millis() < flashUntil ? flash : "") + "|" + screen + "|" + listTop + "|" + listLoading + "|" +
-               directory::source + "|" + directory::stations.size() + "|" + player::currentIndex() + "|" + uiEpoch +
-               "|" + (player::connecting() ? String((millis() / 400) % 3) : String("-")) + (millis() < resetArmedUntil);
+               (millis() < flashUntil ? flash : "") + "|" + screen + "|" + favTop + "|" + favourites::list().size() + "|" +
+               drift::state() + drift::message() + tunerShowing() + "|" + directory::source + "|" + directory::stations.size() + "|" + player::currentIndex() + "|" + uiEpoch +
+               "|" + player::connecting() + (millis() < resetArmedUntil);
   if (key != shown) { shown = key; draw(); }
-  if (wantLoad) {   // after the "Loading..." frame is on screen
-    wantLoad = false;
-    String src = wantSource.length() ? wantSource : (lastSource.isEmpty() || lastSource == "favourites" ? "popular" : lastSource);
-    wantSource = "";
-    if (net::connected()) directory::load(src);
-    listLoading = false;
-    uiEpoch++;
-  }
-
 }
 
 // Drawn at once: a firmware upload holds the main loop until it is done.
 void display::busy(const String& text) { busyText = text; uiEpoch++; if (io) draw(); }
 const uint16_t* display::frame() { return io ? gfx->getFramebuffer() : nullptr; }
 int display::side() { return LCD_SIZE; }
+void display::setLowPower(bool on) {
+  lowPowerOn = on;
+  Preferences p; p.begin("display", false); p.putBool("lowpower", on); p.end();
+  if (!on && asleep) { asleep = false; ledcWrite(PIN_LCD_BL, 220); }
+  touchAt = millis();   // either way, from now
+  uiEpoch++;
+}
+bool display::lowPower() { return lowPowerOn; }
+
 void display::preview(const String& name) {
+  if (name == "viz") { touchAt = 0; screen = HOME; previewName = ""; uiEpoch++; return; }   // shows once it may
   previewName = name == "off" ? "" : name;
-  if (previewName == "list" && directory::stations.empty()) openList();
   uiEpoch++;
 }
 
@@ -729,4 +1023,6 @@ void display::busy(const String&) {}
 const uint16_t* display::frame() { return nullptr; }
 int display::side() { return 0; }
 void display::preview(const String&) {}
+void display::setLowPower(bool) {}
+bool display::lowPower() { return false; }
 #endif

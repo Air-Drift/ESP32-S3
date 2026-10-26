@@ -19,4 +19,4 @@ for try in 1 2 3 4 5; do
   echo "image checksum invalid, regenerating"
 done
 B0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -1)
-$PY $ESPTOOL --chip esp32s3 --port "$PORT" --baud 921600 write-flash 0x0 bootloader.bin 0x8000 partitions.bin 0xe000 "$B0" 0x10000 fw.bin
+$PY $ESPTOOL --chip esp32s3 --port "$PORT" --baud 460800 write-flash 0x0 bootloader.bin 0x8000 partitions.bin 0xe000 "$B0" 0x10000 fw.bin

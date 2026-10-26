@@ -2,7 +2,7 @@
 // the board (platformio.ini); this is the file to edit when wiring changes.
 #pragma once
 
-#define AD_VERSION    "0.4.1"
+#define AD_VERSION    "0.5.0"
 #define AD_SITE       "https://airdrift.stream"
 #define AD_USER_AGENT "AirDrift-ESP32/" AD_VERSION " (+https://airdrift.stream)"
 // Where releases live: version.txt says what the newest is, and
@@ -36,8 +36,12 @@
 #define PIN_ENC_A     -1
 #define PIN_ENC_B     -1
 
-// Held high, the board stays on when running from its battery.
+// Held high, the 1.85 stays on when running from its battery (the 1.85C has
+// a slide switch instead, and GPIO 7 is free on its header).
 #define PIN_PWR_HOLD  7
+// The battery through a 200K/100K divider. Charging and USB are not wired to
+// any pin; the charge LED is the charger chip's own.
+#define PIN_BAT_ADC   8
 
 // System I2C: TCA9554 expander (0x20), IMU, RTC.
 #define PIN_SYS_SDA   11

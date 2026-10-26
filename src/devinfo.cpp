@@ -3,6 +3,7 @@
 #include "net.h"
 #include "player.h"
 #include "directory.h"
+#include "power.h"
 #include <WiFi.h>
 #include <esp_system.h>
 #include <esp_chip_info.h>
@@ -157,6 +158,16 @@ void devinfo::fill(JsonDocument& d) {
   audio["i2s"] = String("BCLK ") + PIN_I2S_BCLK + ", LRC " + PIN_I2S_LRC + ", DOUT " + PIN_I2S_DOUT + (PIN_I2S_MCLK >= 0 ? String(", MCLK ") + PIN_I2S_MCLK : String());
   audio["list"] = directory::source;
   audio["listCount"] = directory::stations.size();
+
+#ifdef PIN_BAT_ADC
+  JsonObject bat = d["battery"].to<JsonObject>();
+  bat["mv"] = power::millivolts();
+  bat["percent"] = power::percent();
+  bat["usb"] = power::usb();
+  bat["lift"] = power::lift();
+  bat["learned"] = power::learned();
+  bat["runMinutes"] = power::runMinutes();
+#endif
 
   d["display"] = HAS_DISPLAY ? "round 360×360 touch screen" : "none";
 

@@ -14,6 +14,7 @@ namespace directory {
   extern String               error;     // why the last load failed, or ""
 
   bool load(const String& src);                  // "favourites" | "popular" | "trending" | "country:XX" | "tag:name"
+  bool fetch(const String& src, std::vector<Station>& out);   // "country:XX" or "tag:name" into out, leaving `stations` alone
   bool search(const String& term);               // live search by name
   bool byId(const String& id, Station& out);     // one station by uuid (an Air Drift /listen/<id> link)
   bool reportPlay(const String& id);             // the play count that ranks stations

@@ -9,6 +9,8 @@
 #include "display.h"
 #include "screenshot.h"
 #include "updater.h"
+#include "power.h"
+#include "drift.h"
 
 // The screen as a BMP in base64 between two marker lines, for a script on
 // the other end to decode: the only way to catch the setup screen, which
@@ -77,9 +79,12 @@ static void help() {
     "  wifi <ssid> <password>   join a network (quote a name with spaces)\n"
     "  forget                   erase WiFi and restart into the setup portal\n"
 "  factory                  erase WiFi, favourites and the last station, then restart\n"
+"  battery [forget]         the battery's voltage and charge, and what it has learned of it\n"
+"  radio                    leave the charge screen and start the radio\n"
 "  update [now]             check the project's releases for a newer firmware; 'now' installs it\n"
 "  screen                   the screen as a BMP, base64, between marker lines\n"
-"  ui <name>                show a screen for a screenshot: home empty list about phone setup busy; ui off\n"
+"  ui <name>                show a screen for a screenshot: home empty favs about phone setup busy charge viz; ui off\n"
+"  drift [mood]             a station somewhere on Earth, or in a mood (jazz, news, ...)\n"
     "  popular | trending       load that list from airdrift.stream\n"
     "  favourites               load the saved stations\n"
     "  fav                      save or unsave the playing station\n"
@@ -123,6 +128,18 @@ static void run(const String& cmd) {
   String op = w[0]; op.toLowerCase();
   String rest = cmd.substring(op.length()); rest.trim();
 
+  if (op == "battery") {
+    if (w.size() > 1 && w[1] == "forget") { power::forget(); Serial.println("forgot this battery: back to the generic table"); return; }
+    Serial.printf("battery: %d mV, %d%%, USB host %s\n", power::millivolts(), power::percent(), power::usb() ? "yes" : "no");
+    Serial.printf("learned: charging lifts it %d mV; curve %s; run being recorded %d min\n",
+                  power::lift(), power::learned() ? "this battery's own" : "generic (no full run yet)", power::runMinutes());
+    return;
+  }
+  if (op == "radio") { power::wake(); return; }
+  if (power::standby() && op != "help" && op != "?" && op != "reboot" && op != "screen") {
+    Serial.println("on the charge screen, nothing else has started: type  radio");
+    return;
+  }
   if (op == "help" || op == "?") help();
   else if (op == "status") status();
   else if (op == "wifi") { if (w.size() >= 2) net::setCredentials(w[1], w.size() > 2 ? w[2] : ""); else Serial.println("wifi <ssid> <password>"); }
@@ -136,7 +153,8 @@ static void run(const String& cmd) {
     }
   }
   else if (op == "screen") dumpScreen();
-  else if (op == "ui") { if (w.size() > 1) display::preview(w[1]); else Serial.println("ui home|empty|list|about|phone|setup|busy|off"); }
+  else if (op == "ui") { if (w.size() > 1) display::preview(w[1]); else Serial.println("ui home|empty|favs|about|phone|setup|busy|charge|viz|off"); }
+  else if (op == "drift") { drift::start(w.size() > 1 ? w[1] : String()); Serial.println("drifting"); }
   else if (op == "forget") net::forget();
   else if (op == "factory") net::factoryReset();
   else if (op == "popular" || op == "trending" || op == "favourites") loadAndList(op);
