@@ -302,6 +302,8 @@ void webui::begin() {
   server.on("/api/prev", HTTP_GET, [] { player::prev(); ok(); });
   server.on("/api/volume", HTTP_GET, [] { player::setVolume(server.arg("v").toInt()); ok(); });
   server.on("/api/lowpower", HTTP_GET, [] { display::setLowPower(server.arg("on") == "1"); ok(); });
+  // A screen by name, for screenshots with /screen.bmp, as the console's "ui" does.
+  server.on("/api/ui", HTTP_GET, [] { display::preview(server.arg("name")); ok(); });
   // Updates from the project's releases: what the newest is, and install it.
   server.on("/api/update/check", HTTP_GET, [] {
     String v, err; bool ok = updater::latest(v, err);

@@ -25,14 +25,20 @@ from almost every country on earth. No account, no app, no subscription: the
 stations come from [Air Drift](https://airdrift.stream), a free directory of
 internet radio, and play straight from their own streams.
 
-The radio has its own web page on your network for searching and picking
-stations from a phone or laptop, remembers what it was playing, saves
-favourites to flash, and updates its own firmware over WiFi.
+Press **Drift** and it lands on a station somewhere on Earth. Left alone while
+it plays, the screen becomes a visualiser: the music radiating from the song's
+cover, with the station and the song running round the rim. The radio has its
+own web page on your network for searching and picking stations from a phone
+or laptop, remembers what it was playing, saves favourites to flash, and
+updates its own firmware over WiFi.
+
+**[Install it from your browser](https://airdrift.stream/esp32)**: plug the
+board in by USB, press one button in Chrome or Edge, and it is a radio.
 
 <p align="center">
-  <img src="docs/screenshots/screen-home.png" alt="The home screen: station name, the song playing, transport buttons and a volume ring" width="260">&nbsp;&nbsp;
-  <img src="docs/screenshots/screen-list.png" alt="The station list: Favourites, Popular and Search pills, five stations with a star on each" width="260">&nbsp;&nbsp;
-  <img src="docs/screenshots/screen-about.png" alt="The connect screen: a QR code for the radio's web page, its address, WiFi and a factory reset" width="260">
+  <img src="docs/screenshots/screen-home.png" alt="The home screen: the station and its country, volume down, Drift and volume up, then Remote and Favourites" width="260">&nbsp;&nbsp;
+  <img src="docs/screenshots/screen-visualiser.png" alt="The visualiser: the spectrum radiating from the song's cover, with the station and song running round the rim" width="260">&nbsp;&nbsp;
+  <img src="docs/screenshots/screen-favourites.png" alt="Favourites: saved stations with a star on each, and the station playing to add" width="260">
 </p>
 
 ## Contents
@@ -105,7 +111,12 @@ both play the same stations.
 
 ## Quick start
 
-**Nothing to build.** Every release on the
+**Nothing to build.** The easiest way is the installer at
+**[airdrift.stream/esp32](https://airdrift.stream/esp32)**: plug the board in
+by USB, open the page in Chrome or Edge on a computer, press **Install on my
+board** and pick its port. It writes the newest release, for either board.
+
+Or from a terminal: every release on the
 [Releases page](https://github.com/Air-Drift/ESP32-S3/releases) has a
 ready-made image for each board, and the newest is always at the same
 address. For the Waveshare board, plug it in by USB and write it at address 0
@@ -134,33 +145,36 @@ For the custom build, the same with `airdrift-devkit-full.bin`
 ## The screen
 
 The Waveshare board's round screen is the whole interface. It draws in Air
-Drift's own palette, with a volume ring around the edge.
+Drift's own palette, with the volume on a ring around the edge and the battery
+in the ring's gap at the bottom.
 
 <table>
   <tr>
-    <td width="33%" align="center"><img src="docs/screenshots/screen-home.png" alt="Home screen while a station plays" width="240"></td>
-    <td width="33%" align="center"><img src="docs/screenshots/screen-list.png" alt="Station list showing the Popular list" width="240"></td>
-    <td width="33%" align="center"><img src="docs/screenshots/screen-phone.png" alt="A QR code for the radio's web page, for searching on a phone" width="240"></td>
+    <td width="33%" align="center"><img src="docs/screenshots/screen-home.png" alt="Home: the station and its country, volume down, Drift and volume up, then Remote and Favourites" width="240"></td>
+    <td width="33%" align="center"><img src="docs/screenshots/screen-visualiser.png" alt="The visualiser: the spectrum radiating from the song's cover, the station and song round the rim" width="240"></td>
+    <td width="33%" align="center"><img src="docs/screenshots/screen-favourites.png" alt="Favourites: three saved stations with a star on each, and the station playing to add" width="240"></td>
   </tr>
   <tr>
-    <td><strong>Home.</strong> The station, the song, volume down and up, previous, play/pause, next. The star saves the station; Stations opens the list. Swipe left or right for the next or previous station, up for the list.</td>
-    <td><strong>Stations.</strong> Three pills, always the same three: Favourites, Popular and Search. Tap a row to play it, its star to save it, the arrows to page. A country or genre loaded from the web page shows here too.</td>
-    <td><strong>Search.</strong> Searching needs a keyboard, so the magnifier hands over to the web page with a QR code. Pick a station there and the screen goes home with it.</td>
+    <td><strong>Home.</strong> The station and its country, volume down and up, and <strong>Drift</strong>: a random country, weighted by how many stations it has, and one of its most played. A station that does not answer is drifted on from. While a drift tunes, the button greys out. Swipe left or right for the next or previous station in the drift.</td>
+    <td><strong>Visualiser.</strong> Left alone while it plays, the screen becomes the music: a spectrum radiating from the song's cover (found on MusicBrainz and the Cover Art Archive), else the station's logo, with the station, its country and the song running round the rim. A touch brings home back. In <em>low power mode</em> the screen sleeps instead.</td>
+    <td><strong>Favourites.</strong> Three to a page: tap a row to play it, its star to drop it, the arrows (or a swipe up or down) to page. The station playing, if it is not saved yet, waits at the top to be added.</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/screen-empty.png" alt="Nothing playing yet: Pick a station or Use my phone" width="240"></td>
+    <td align="center"><img src="docs/screenshots/screen-menu.png" alt="The button's menu: Resume, New WiFi and Reset device" width="240"></td>
+    <td align="center"><img src="docs/screenshots/screen-phone.png" alt="Remote: a QR code for the radio's web page" width="240"></td>
     <td align="center"><img src="docs/screenshots/screen-setup.png" alt="Let's get you online: a QR code that joins the Air Drift Setup network" width="240"></td>
-    <td align="center"><img src="docs/screenshots/screen-about.png" alt="The connect screen with the page's QR code, address, WiFi and factory reset" width="240"></td>
   </tr>
   <tr>
-    <td><strong>Nothing playing yet.</strong> The first thing a new radio shows once it is online: pick from the Popular list here, or use a phone.</td>
+    <td><strong>The button.</strong> The button on the side pauses the music and opens a menu: <strong>Resume</strong> (or press the button again; <strong>Close</strong> when nothing was playing), <strong>New WiFi</strong> to set up another network, <strong>Reset device</strong>. The last two ask for a second tap.</td>
+    <td><strong>Remote.</strong> Searching needs a keyboard, so Remote shows a QR code for the radio's web page. Pick a station there and the screen goes home with it.</td>
     <td><strong>Let's get you online.</strong> With no WiFi stored, a QR code that joins the radio's setup network. See <a href="#first-boot">First boot</a>.</td>
-    <td><strong>Hold the logo</strong> for the connect screen: the page's QR code, hostname and IP, WiFi network and signal, firmware version, and <strong>Factory reset</strong> (tap it twice).</td>
   </tr>
 </table>
 
-Volume buttons repeat while held. A tap on the logo always leads home. The
-BOOT button on the board is play/pause too.
+Volume buttons repeat while held. A tap on the logo always leads home; holding
+it shows the connect screen, with the page's address, the WiFi signal and the
+firmware version. Plugged in to charge, the radio starts on a charge screen
+rather than playing; a touch or the button starts the radio.
 
 ## The web page
 
@@ -175,11 +189,12 @@ the browser from their own hosts, never through the radio.
   </tr>
   <tr>
     <td><strong>Radio.</strong> What is playing with its logo, play/pause, previous, next, stop, volume, a box for any link or stream, then Favourites, Popular, Trending, a country, a genre, and search. Stations without a logo get their initials on a tint, as on the site.</td>
-    <td><strong>Device.</strong> Board and chip, CPU load per core, memory with low-water marks, WiFi signal and addresses, the audio pipeline with its stream buffer, every FreeRTOS task, a screenshot of the screen, and the firmware update.</td>
+    <td><strong>Device.</strong> The screen's low power switch first, then board and chip, CPU load per core, memory with low-water marks, WiFi signal and addresses, the audio pipeline with its stream buffer, every FreeRTOS task, a screenshot of the screen, and the firmware update.</td>
   </tr>
 </table>
 
-The page is plain HTML and JavaScript served from flash: one file, no build
+A third tab, **Apps**, links Air Drift's apps for phones, computers, TVs and
+Alexa. The page is plain HTML and JavaScript served from flash: one file, no build
 step, no framework. Anything it does, the [API](#api) does too.
 
 ## First boot
@@ -191,12 +206,11 @@ step, no framework. Anything it does, the [API](#api) does too.
    settings), and the setup page opens by itself. It lists the networks in
    range, strongest first; pick yours, type the password, **Connect**. The
    screen says "Joining…", then the setup network switches itself off.
-2. Once online it offers two ways in: **Pick a station** opens the Popular
-   list on the screen; **Use my phone** shows a QR code for the radio's own
-   web page, with the address in words (`airdrift.local`).
-3. Hold the logo at any time for the connect screen, with the page's QR code
-   and a **Factory reset** that forgets WiFi, favourites and the last station
-   and starts over at step 1, for moving house or handing it on.
+2. Once online, press **Drift**. **Remote** shows a QR code for the radio's
+   own web page, with the address in words (`airdrift.local`), for searching.
+3. For a new network, press the button on the side and pick **New WiFi**: it
+   starts over at step 1. **Reset device** there forgets WiFi, favourites and
+   the last station too, for moving house or handing it on.
 
 **The custom build** has no screen, so:
 
