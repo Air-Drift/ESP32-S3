@@ -169,9 +169,11 @@ static String urlencode(const String& s) {
   return out;
 }
 
+// Over plain HTTP, which the mirrors serve too: this core's TLS takes its
+// buffers from internal RAM, and an HTTPS station already holds most of it.
 static bool radioBrowser(const String& pathAndQuery, String& body) {
   for (const char* host : MIRRORS) {
-    if (fetch(String("https://") + host + pathAndQuery, body)) return true;
+    if (fetch(String("http://") + host + pathAndQuery, body)) return true;
   }
   return false;
 }

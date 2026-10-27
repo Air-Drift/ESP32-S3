@@ -49,6 +49,7 @@ static void pickTask(void* arg) {
   String mood = *m; delete m;
   std::vector<Station> rows;
   taskErr = "";
+  vTaskDelay(pdMS_TO_TICKS(600));   // the old station's connection closing (see begin)
   if (mood.length()) {
     if (directory::fetch("tag:" + mood, rows)) fresh(rows, POOL_MOOD);
   } else {
@@ -67,6 +68,10 @@ static void begin(const String& mood) {
   using namespace drift;
   if (working || !net::connected()) return;
   moodNow = mood; placeNow = "";
+  // The site's files come over HTTPS, and a TLS handshake needs internal RAM
+  // that an HTTPS station is holding: the old station stops first. It was
+  // being left anyway.
+  player::stop();
   set(TUNING);
   working = true; done = false;
   if (xTaskCreatePinnedToCoreWithCaps(pickTask, "drift", 12288, new String(mood), 1, &task, tskNO_AFFINITY, MALLOC_CAP_SPIRAM) != pdPASS) {

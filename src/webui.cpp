@@ -33,8 +33,14 @@ main{max-width:640px;margin:0 auto;padding:16px}
 .art{position:relative;flex:none;display:grid;place-items:center;border-radius:12px;overflow:hidden;background:var(--line);color:var(--mute);font-weight:600;font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
 .art img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff}.art img[hidden]{display:none}
 #artwrap{display:contents}.now .art{width:56px;height:56px;font-size:17px}li .art{width:36px;height:36px;border-radius:8px;font-size:12px}
-.now .t{min-width:0}.now b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.now .t span{color:var(--fg2);font-size:14px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.now .t span+span{color:var(--mute)}
-.tg{display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer}.tg input{width:20px;height:20px;accent-color:var(--green);margin:0}
+.now .t{flex:1;min-width:0}.now b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.now .t span{color:var(--fg2);font-size:14px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.now .t span+span{color:var(--mute)}
+.tg{display:flex;gap:12px;align-items:center;justify-content:space-between;font-weight:600;cursor:pointer}
+.sw{appearance:none;-webkit-appearance:none;flex:none;width:50px;height:30px;margin:0;border-radius:999px;background:var(--line2);position:relative;cursor:pointer;transition:background .15s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0005;transition:transform .15s}
+.sw:checked{background:var(--green)}.sw:checked::after{transform:translateX(20px)}.sw:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.tr{display:grid;grid-template-columns:1fr 1.3fr 1fr 1fr;gap:8px;flex:1 1 240px}.tr button{height:44px;padding:0}
+.pills{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:8px}.pills button{padding:8px 6px;white-space:nowrap}
+.scroll{overflow-x:auto}.scroll td{white-space:nowrap}
 .row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
 button{font:inherit;font-weight:500;border:1px solid var(--line2);background:var(--card);color:var(--fg);border-radius:12px;padding:8px 12px;cursor:pointer}button:hover{border-color:var(--green)}
 button.p{background:var(--green);color:var(--on-green);border-color:var(--green);font-weight:700}button.p:hover{background:var(--green-hi);border-color:var(--green-hi)}
@@ -52,35 +58,50 @@ table{width:100%;border-collapse:collapse;font-size:13px;font-family:"IBM Plex M
 button.wait{opacity:.7}button.wait::after{content:"";display:inline-block;width:9px;height:9px;margin-left:7px;vertical-align:middle;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 button.star{flex:none;width:44px;height:44px;border-radius:50%;padding:0;font-size:22px;line-height:1;color:var(--mute)}button.star.on{color:var(--green);border-color:var(--green)}
 li .n b .f{color:var(--green);font-size:12px;margin-left:6px}
-.err{color:#ff7d95;font-size:14px;margin-top:8px}.mute{color:var(--mute);font-size:14px}.mute a{color:var(--green)}
+.err{color:#ff7d95;font-size:14px;margin-top:8px}
+.stores li{display:flex;gap:14px;align-items:center;padding:12px 0}.stores li a{flex:none;width:176px;display:flex}.stores img{height:48px;width:auto;display:block}.stores span{color:var(--fg2);font-size:14px}
+.lk{color:var(--green)}.foot{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 20px;margin:24px 0 8px;padding-top:16px;border-top:1px solid var(--line);font-size:14px}.foot a{color:var(--mute);text-decoration:none}.foot a:hover{color:var(--green)}
+@media(max-width:520px){main{padding:12px}.card{padding:12px}input[type=range]{flex:1 1 100%;height:32px}button{min-height:44px}li button{min-width:64px}.stores li{flex-direction:column;align-items:flex-start;gap:6px}.brand .word{font-size:26px}}.mute{color:var(--mute);font-size:14px}.mute a{color:var(--green)}
 </style></head><body><main>
 <div class="brand"><svg viewBox="0 0 512 512" aria-hidden="true"><rect fill="var(--tile)" width="512" height="512" rx="143"/><g stroke="var(--bars)" fill="none" stroke-width="2.8" stroke-linecap="round" transform="translate(71.68 71.68) scale(15.36)"><path d="M4 10v4"/><path d="M8 7v10"/><path d="M12 3v18"/><path d="M16 7v10"/><path d="M20 10v4"/></g></svg><span class="word">air<b>drift</b></span><small id="ver"></small></div>
-<div class="tabs2"><button id="tabRadio" aria-pressed="true" onclick="show('radio')">Radio</button><button id="tabDevice" aria-pressed="false" onclick="show('device')">Device</button></div>
+<div class="tabs2"><button id="tabRadio" aria-pressed="true" onclick="show('radio')">Radio</button><button id="tabDevice" aria-pressed="false" onclick="show('device')">Device</button><button id="tabApps" aria-pressed="false" onclick="show('apps')">Apps</button></div>
 <div id="radio">
 <div class="card">
  <div class="now"><span id="artwrap"><span class="art"></span></span><div class="t"><b id="name">Nothing playing</b><span id="title"></span><span id="codec"></span></div><button class="star" id="fav" title="Favourite" onclick="toggleFav(this)">&#9734;</button></div>
- <div class="row"><button onclick="go('/api/prev',this)">&#9664;&#9664;</button><button class="p" id="pp" onclick="togglePP(this)">&#9654;</button><button onclick="go('/api/next',this)">&#9654;&#9654;</button><button onclick="go('/api/stop',this)">&#9632;</button>
+ <div class="row"><div class="tr"><button onclick="go('/api/prev',this)" aria-label="Previous">&#9664;&#9664;</button><button class="p" id="pp" onclick="togglePP(this)" aria-label="Play or pause">&#9654;</button><button onclick="go('/api/next',this)" aria-label="Next">&#9654;&#9654;</button><button onclick="go('/api/stop',this)" aria-label="Stop">&#9632;</button></div>
  <input type="range" id="vol" min="0" max="21" oninput="go('/api/volume?v='+this.value)"></div>
- <div class="row"><input type="text" id="link" placeholder="Paste an airdrift.stream link or a stream URL"><button onclick="playLink(this)">Play</button></div>
+ <div class="row"><input type="text" id="link" placeholder="Paste a station link or stream URL"><button onclick="playLink(this)">Play</button></div>
  <div class="err" id="err"></div>
 </div>
 <div class="card">
- <div class="row tabs" style="margin-top:0"><button onclick="load('favourites')" id="tabFav">&#9733; Favourites</button><button onclick="load('popular')">Popular</button><button onclick="load('trending')">Trending</button>
- <input type="text" id="cc" placeholder="Country (US)" size="9" style="flex:0 0 7.5em" onchange="load('country:'+this.value)"><input type="text" id="tag" placeholder="Genre (jazz)" style="flex:1 1 7em" onchange="load('tag:'+this.value)"></div>
+ <div class="pills tabs"><button onclick="load('favourites')" id="tabFav">&#9733; Favourites</button><button onclick="load('popular')">Popular</button><button onclick="load('trending')">Trending</button></div>
+ <div class="row"><input type="text" id="cc" placeholder="Country (US)" onchange="load('country:'+this.value)"><input type="text" id="tag" placeholder="Genre (jazz)" onchange="load('tag:'+this.value)"></div>
  <div class="row"><input type="text" id="q" placeholder="Search stations by name" onkeydown="if(event.key=='Enter')search()"><button onclick="search()">Search</button></div>
  <p class="mute" id="src"></p><ul id="list"></ul>
 </div>
 <p class="mute">Lists come from <a href="https://airdrift.stream">airdrift.stream</a>. Logos load in your browser, not on the radio.</p>
 </div>
-<div id="device" hidden><div id="stats"></div>
-<div class="card" id="screen" hidden><h2>Screen</h2><label class="tg"><input type="checkbox" id="lp" onchange="lowPower(this.checked)"> Low power mode</label>
+<div id="device" hidden><div class="card" id="screen" hidden><h2>Screen</h2><label class="tg" for="lp"><span>Low power mode</span><input type="checkbox" class="sw" role="switch" id="lp" onchange="lowPower(this.checked)"></label>
 <p class="mute" style="margin:8px 0 0">While a station plays, the screen goes dark after a few seconds instead of showing the visualiser. A touch wakes it.</p></div>
+<div id="stats"></div>
 <div class="card" id="fw"><h2>Firmware</h2><p class="mute" style="margin:0 0 10px">Running <span id="fwver"></span>.</p>
 <div class="row" style="margin-top:0"><button id="chk" onclick="checkUpdate()">Check for updates</button><span class="mute" id="chkst"></span></div>
 <p class="mute" style="margin:14px 0 8px">Or upload a build of your own (<code>firmware.bin</code> from PlatformIO, or a release's <code>airdrift-&lt;board&gt;.bin</code>):</p>
 <div class="row" style="margin-top:0"><input type="file" id="fwfile" accept=".bin,application/octet-stream"><button id="fwgo" onclick="update()">Upload</button></div>
 <div class="st" id="fwst"></div></div>
 <p class="mute" id="shot" hidden>The screen right now: <a href="/screen.bmp">screen.bmp</a></p></div>
+<div id="apps" hidden>
+<div class="card"><h2>Air Drift everywhere</h2><p style="margin:0 0 4px">The same stations and the same drift, free, on your other screens. Or in any browser at <a href="https://airdrift.stream" class="lk">airdrift.stream</a>.</p>
+<ul class="stores">
+<li><a href="https://apps.apple.com/app/air-drift/id6816224999" target="_blank" rel="noopener"><img src="https://airdrift.stream/icons/badges/app-store.svg" width="144" height="48" alt="Download on the App Store"></a><span>iPhone, iPad, Apple TV, Apple Watch and CarPlay</span></li>
+<li><a href="https://play.google.com/store/apps/details?id=stream.airdrift.app" target="_blank" rel="noopener"><img src="https://airdrift.stream/icons/badges/google-play.svg" width="176" height="48" alt="Get it on Google Play"></a><span>Android phones, tablets and Android Auto</span></li>
+<li><a href="https://apps.microsoft.com/detail/9NK2V8WTBJLG" target="_blank" rel="noopener"><img src="https://airdrift.stream/icons/badges/microsoft-store.svg" width="176" height="48" alt="Download from the Microsoft Store"></a><span>Windows 10 and 11</span></li>
+<li><a href="https://www.amazon.com/dp/B0HLWTBVX2" target="_blank" rel="noopener"><img src="https://airdrift.stream/icons/badges/amazon-appstore.svg" width="176" height="48" alt="Available at Amazon Appstore"></a><span>Fire TV, Fire tablets and cars with Fire TV built in</span></li>
+<li><a href="https://www.amazon.com/dp/B0HM3JP6ZF" target="_blank" rel="noopener"><img src="https://airdrift.stream/icons/badges/alexa.svg" width="176" height="48" alt="Enable the skill on Amazon Alexa"></a><span>Echo and other Alexa devices: &ldquo;Alexa, open Air Drift&rdquo;</span></li>
+</ul>
+<p class="mute" style="margin:12px 0 0">The newest list, with SoundTouch and more: <a href="https://airdrift.stream/apps" target="_blank" rel="noopener">airdrift.stream/apps</a></p></div>
+</div>
+<footer class="foot"><a href="https://airdrift.stream" target="_blank" rel="noopener">airdrift.stream</a><a href="#apps" onclick="show('apps');return false">Apps</a><a href="https://github.com/Air-Drift/ESP32-S3" target="_blank" rel="noopener">Source on GitHub</a></footer>
 </main><script>
 const $=id=>document.getElementById(id);let busy=false,inflight=0,ppOn=false;
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -98,7 +119,8 @@ async function state(force){if(updating||(inflight&&!force))return;try{const s=a
  if(s.source!==curSource&&!busy)list();}catch(e){}}
 let curSource='';
 function lowPower(on){fetch('/api/lowpower?on='+(on?1:0));}
-function render(d){curSource=d.source;$('src').textContent=d.source?d.source.replace(':',': ')+' · '+d.stations.length+' stations':'';
+function srcName(v){const [k,a]=[v.split(':')[0],v.slice(v.indexOf(':')+1)];return k==='drift'?'Drift'+(a?' · '+a:''):k==='country'?'Country · '+a.toUpperCase():k==='tag'?'Genre · '+a:k==='search'?'Search · “'+a+'”':k.charAt(0).toUpperCase()+k.slice(1);}
+function render(d){curSource=d.source;$('src').textContent=d.source?srcName(d.source)+' · '+d.stations.length+' stations':'';
  $('list').innerHTML=d.stations.map((s,i)=>`<li>${art(s)}<div class="n"><b>${esc(s.name)}${s.fav?'<span class="f">&#9733;</span>':''}</b><span>${esc(s.country)} · ${esc(s.codec)} ${s.bitrate||''}</span></div><button onclick="go('/api/play?i=${i}',this)">Play</button></li>`).join('');
  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-pressed',b.textContent.toLowerCase().replace(/[^a-z]/g,'')===(d.source||'').replace(/[^a-z]/g,'')));}
 async function list(){try{render(await (await fetch('/api/list')).json())}catch(e){}}
@@ -109,7 +131,7 @@ async function toggleFav(b){b.classList.add('wait');try{const r=await (await fet
 function togglePP(b){ppOn=!ppOn;b.innerHTML=ppOn?'&#10074;&#10074;':'&#9654;';go('/api/pause',b)}
 function playLink(b){const v=$('link').value.trim();if(v)go('/api/play?link='+encodeURIComponent(v),b)}
 let view='radio';
-function show(v){view=v;location.hash=v==='device'?'#device':'';$('radio').hidden=v!=='radio';$('device').hidden=v!=='device';if(v==='device'&&!checked)checkUpdate();$('tabRadio').setAttribute('aria-pressed',v==='radio');$('tabDevice').setAttribute('aria-pressed',v==='device');if(v==='device')device();}
+function show(v){view=v;location.hash=v==='radio'?'':'#'+v;for(const t of ['radio','device','apps']){$(t).hidden=v!==t;$('tab'+t[0].toUpperCase()+t.slice(1)).setAttribute('aria-pressed',v===t);}if(v==='device'&&!checked)checkUpdate();if(v==='device')device();scrollTo(0,0);}
 const kb=n=>n>=1048576?(n/1048576).toFixed(2)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B';
 const dur=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+(h?h+'h ':'')+m+'m '+(s%60)+'s'};
 const sec=(t,rows)=>`<div class="card"><h2>${t}</h2><dl class="kv">${rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>`;
@@ -121,7 +143,7 @@ async function device(){if(view!=='device'||updating)return;try{const d=await (a
   sec('Memory',[['Internal RAM',bar(h.size-h.free,h.size,`${kb(h.size-h.free)} of ${kb(h.size)} used, ${kb(h.free)} free`)],['Lowest free',kb(h.minFree)],['Largest free block',kb(h.maxBlock)],['PSRAM',bar(p.size-p.free,p.size,`${kb(p.size-p.free)} of ${kb(p.size)} used, ${kb(p.free)} free`)],['PSRAM lowest free',kb(p.minFree)],['Program',bar(f.sketch,f.sketch+f.sketchFree,`${kb(f.sketch)} of ${kb(f.sketch+f.sketchFree)}`)]])+
   (w.connected?sec('WiFi',[['Network',esc(w.ssid)],['Signal',bar(Math.max(0,w.rssi+100),70,`${w.rssi} dBm`)],['Channel',w.channel],['Access point',w.bssid],['Address',w.ip],['Gateway',w.gateway],['Subnet',w.mask],['DNS',w.dns],['Hostname',w.hostname],['TX power',w.txPower+' dBm']]):sec('WiFi',[['Status',w.portal?'setup portal open':'not connected']]))+
   sec('Audio',[['Station',esc(a.station)||'—'],['Stream',a.url?`<a href="${esc(a.url)}" style="color:var(--green)">${esc(a.url)}</a>`:'—'],['State',a.running?(a.paused?'paused':'playing'):'stopped'],['Codec',esc(a.codec)||'—'],['Sample rate',a.sampleRate?a.sampleRate+' Hz':'—'],['Stream buffer',bar(a.buffer,a.bufferSize,`${kb(a.buffer)} of ${kb(a.bufferSize)}`)],['Volume',a.volume+' / 21'],['Decoder core',a.decodeCore],['I2S pins',esc(a.i2s)],['Loaded list',a.list?`${esc(a.list)} (${a.listCount})`:'none']])+
-  `<div class="card"><h2>Tasks</h2><table><tr><th>Task</th><th class="r">Core</th><th class="r">Prio</th><th class="r">Stack free</th><th class="r">CPU</th></tr>${(d.tasks||[]).sort((x,y)=>y.cpu-x.cpu).map(t=>`<tr><td>${esc(t.name)}</td><td class="r">${t.core<0?'any':t.core}</td><td class="r">${t.prio}</td><td class="r">${kb(t.stackFree)}</td><td class="r">${t.cpu} %</td></tr>`).join('')}</table></div>`;
+  `<div class="card"><h2>Tasks</h2><div class="scroll"><table><tr><th>Task</th><th class="r">Core</th><th class="r">Prio</th><th class="r">Stack free</th><th class="r">CPU</th></tr>${(d.tasks||[]).sort((x,y)=>y.cpu-x.cpu).map(t=>`<tr><td>${esc(t.name)}</td><td class="r">${t.core<0?'any':t.core}</td><td class="r">${t.prio}</td><td class="r">${kb(t.stackFree)}</td><td class="r">${t.cpu} %</td></tr>`).join('')}</table></div></div>`;
  }catch(e){$('stats').innerHTML='<div class="card err">The radio did not answer</div>'}}
 let checked=false;
 async function checkUpdate(){const b=$('chk'),st=$('chkst');b.classList.add('wait');st.textContent='Asking GitHub…';checked=true;
@@ -146,7 +168,7 @@ function update(){const f=$('fwfile').files[0];if(!f){$('fwst').textContent='Cho
  const fd=new FormData();fd.append('firmware',f,f.name);x.send(fd);
  function done(){updating=false;$('fwgo').disabled=false;$('fwgo').classList.remove('wait')}
  async function waitBack(){for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,2000));try{const s=await (await fetch('/api/state',{cache:'no-store'})).json();if(s.version){st.textContent='Back on '+s.version+'.';location.reload();return}}catch(e){}}st.textContent='The radio has not come back yet. Give it a moment, then reload this page.';done()}}
-if(location.hash==='#device')show('device');state();list();setInterval(state,2000);setInterval(device,3000);
+if(location.hash==='#device'||location.hash==='#apps')show(location.hash.slice(1));state();list();setInterval(state,2000);setInterval(device,3000);
 </script></body></html>)HTML";
 
 // One client at a time is all this server does, so every answer closes its

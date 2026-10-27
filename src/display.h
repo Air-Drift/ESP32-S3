@@ -12,4 +12,5 @@ namespace display {
   void preview(const String& name); // show a screen by name for screenshots ("off" to stop)
   void setLowPower(bool on);       // the screen sleeps while a station plays, instead of the visualiser
   bool lowPower();
+  void button();                   // the radio's own button: opens the menu (pausing), or closes it (resuming)
 }

@@ -242,7 +242,7 @@ static void touchBegin() {
 // radio's page, where the whole directory is) and Favourites (the saved
 // stations, three at a time, and the one playing to add). Every target is a
 // thumb wide; the ring round the edge shows the volume; swipes are shortcuts.
-enum Screen { HOME, FAVS, ABOUT, PHONE };
+enum Screen { HOME, FAVS, ABOUT, PHONE, MENU };
 static Screen screen = HOME;
 static int favTop = 0;                   // the first favourite showing
 static const int FAV_ROWS = 3;
@@ -267,6 +267,14 @@ static String hitAt(int x, int y) {
 static void note(const String& s) { flash = s; flashUntil = millis() + 1400; uiEpoch++; }
 
 static String phoneFrom;                // what was playing when the phone screen opened
+static bool menuPaused = false;         // the button menu paused the music, so closing it resumes
+static unsigned long wifiArmedUntil = 0; // "New WiFi" wants a second tap before this
+// A drift is not taken again while one is tuning or connecting, for 10 s at
+// most: past that, a stuck one can be left for a new one.
+static unsigned long driftAt = 0;
+static bool driftLocked() {
+  return (drift::state() == drift::TUNING || player::connecting()) && driftAt && millis() - driftAt < 10000;
+}
 
 static void star(int cx, int cy, int r, bool filled, uint16_t colour) {
   // A five-point star as a fan of triangles from the centre.
@@ -295,7 +303,7 @@ static void act(const String& id) {
   if (id == "vol-") volumeBy(-1);
   else if (id == "vol+") volumeBy(+1);
   else if (id == "play") player::togglePause();
-  else if (id == "drift") { drift::start(""); screen = HOME; uiEpoch++; }
+  else if (id == "drift") { if (!driftLocked()) { driftAt = millis(); drift::start(""); } screen = HOME; uiEpoch++; }
   else if (id == "favs") {
     screen = FAVS;
     int i = 0; favTop = 0;
@@ -309,6 +317,11 @@ static void act(const String& id) {
     if (millis() < resetArmedUntil) net::factoryReset();
     else { resetArmedUntil = millis() + 4000; uiEpoch++; }
   }
+  else if (id == "wifi") {
+    if (millis() < wifiArmedUntil) { display::busy("Setting up WiFi"); net::forget(); }
+    else { wifiArmedUntil = millis() + 4000; uiEpoch++; }
+  }
+  else if (id == "resume") display::button();
   else if (id == "fup" || id == "up") { if (favTop >= FAV_ROWS) { favTop -= FAV_ROWS; uiEpoch++; } }
   else if (id == "fdown" || id == "down") { if (favTop + FAV_ROWS < (int)favourites::list().size()) { favTop += FAV_ROWS; uiEpoch++; } }
   else if (id.startsWith("favplay:")) {
@@ -789,6 +802,20 @@ static void bigButton(int cx, int cy, int r, const String& id, uint16_t bg, bool
 
 // Home: the station (no song: the visualiser has that), then the three big
 // buttons and the two ways on. The battery sits in the volume ring's gap.
+// The button's menu: Resume, a new WiFi network, a reset. The two that undo
+// something ask for a second tap.
+static void drawMenu() {
+  brand(44, 24);
+  centred(menuPaused ? "Paused" : net::connected() ? "Menu" : "Not connected", 92, u8g2_font_helvB18_tf, FG);
+  String ssid = WiFi.SSID();
+  if (ssid.length()) centred(fit("WiFi: " + ssid, u8g2_font_helvR12_tf, 260), 116, u8g2_font_helvR12_tf, DIM);
+  pill(162, 220, menuPaused ? "Resume" : "Close", ACCENT, ON_GREEN, "resume", u8g2_font_helvB18_tf, 52);
+  bool wArmed = millis() < wifiArmedUntil, rArmed = millis() < resetArmedUntil;
+  pill(226, 220, wArmed ? "Tap again to set up" : "New WiFi", wArmed ? ACCENT : BTN, wArmed ? ON_GREEN : FG, "wifi", u8g2_font_helvB14_tf, 48);
+  pill(286, 200, rArmed ? "Tap again to reset" : "Reset device", rArmed ? 0xFA49 : BTN, rArmed ? FG : FG, "reset", u8g2_font_helvB14_tf, 44);
+  centred("or press the button again", 330, u8g2_font_helvR10_tf, DIM);
+}
+
 static void drawHome() {
   const Station& s = player::current();
   bool nothing = s.name.isEmpty() || previewName == "empty";
@@ -817,9 +844,10 @@ static void drawHome() {
   bigButton(C - 114, y, 36, "vol-", BTN);
   bigButton(C + 114, y, 36, "vol+", BTN);
   int dw = 138, dh = 72;
-  gfx->fillRoundRect(C - dw / 2, y - dh / 2, dw, dh, dh / 2, ACCENT);
-  centred("Drift", y + 9, u8g2_font_helvB24_tf, ON_GREEN);
-  addHit(C - dw / 2 - 4, y - dh / 2 - 10, dw + 8, dh + 20, drift::state() == drift::TUNING ? "" : "drift");
+  bool locked = driftLocked();   // tuning or connecting: greyed, and taps do nothing
+  gfx->fillRoundRect(C - dw / 2, y - dh / 2, dw, dh, dh / 2, locked ? BTN : ACCENT);
+  centred("Drift", y + 9, u8g2_font_helvB24_tf, locked ? DIM : ON_GREEN);
+  addHit(C - dw / 2 - 4, y - dh / 2 - 10, dw + 8, dh + 20, locked ? "" : "drift");
 
   // Two ways on, inside the ring at this height: Remote (the QR code for
   // this radio's page, where the whole directory is) and the favourites.
@@ -920,8 +948,11 @@ static void draw() {
       centred("then pick your home WiFi", 280, u8g2_font_helvR10_tf, DIM);
       centred("or join it from WiFi settings", 296, u8g2_font_helvR10_tf, DIM);
     }
+  } else if (pv == "menu" || (pv.isEmpty() && screen == MENU)) {
+    drawMenu();
   } else if (pv.isEmpty() && !net::connected()) {
     centred("Connecting to WiFi", C, u8g2_font_helvB18_tf, FG);
+    centred("Press the button to set up WiFi", C + 28, u8g2_font_helvR12_tf, DIM);
   } else if (pv == "favs" || (pv.isEmpty() && screen == FAVS)) {
     drawFavs();
   } else if (pv == "about" || (pv.isEmpty() && screen == ABOUT)) {
@@ -992,7 +1023,7 @@ void display::loop() {
   String key = String(power::percent()) + power::usb() + "|" + s.name + "|" + busyText + previewName + "|" + (net::joining().length() ? String((millis() / 400) % 3) : String("-")) + "|" + player::title() + "|" + player::codec() + "|" + player::volume() + "|" +
                player::running() + player::paused() + "|" + net::connected() + net::portalOpen() + "|" +
                (millis() < flashUntil ? flash : "") + "|" + screen + "|" + favTop + "|" + favourites::list().size() + "|" +
-               drift::state() + drift::message() + tunerShowing() + "|" + directory::source + "|" + directory::stations.size() + "|" + player::currentIndex() + "|" + uiEpoch +
+               drift::state() + drift::message() + tunerShowing() + driftLocked() + (millis() < wifiArmedUntil) + "|" + directory::source + "|" + directory::stations.size() + "|" + player::currentIndex() + "|" + uiEpoch +
                "|" + player::connecting() + (millis() < resetArmedUntil);
   if (key != shown) { shown = key; draw(); }
 }
@@ -1010,6 +1041,25 @@ void display::setLowPower(bool on) {
 }
 bool display::lowPower() { return lowPowerOn; }
 
+// The radio's own button: a menu, with the music paused while it shows.
+// Pressed again (or Resume tapped), the menu goes and the music comes back.
+void display::button() {
+  if (!io) { player::togglePause(); return; }
+  touchAt = millis();
+  if (viz) { viz = false; spectrum::enable(false); }
+  if (asleep) { asleep = false; ledcWrite(PIN_LCD_BL, 220); }
+  if (screen != MENU) {
+    screen = MENU; wifiArmedUntil = resetArmedUntil = 0;
+    menuPaused = player::running() && !player::paused() && !player::connecting();
+    if (menuPaused) player::togglePause();
+  } else {
+    screen = HOME;
+    if (menuPaused && player::paused()) player::togglePause();
+    menuPaused = false;
+  }
+  uiEpoch++;
+}
+
 void display::preview(const String& name) {
   if (name == "viz") { touchAt = 0; screen = HOME; previewName = ""; uiEpoch++; return; }   // shows once it may
   previewName = name == "off" ? "" : name;
@@ -1017,6 +1067,7 @@ void display::preview(const String& name) {
 }
 
 #else
+#include "player.h"
 void display::begin() {}
 void display::loop() {}
 void display::busy(const String&) {}
@@ -1024,5 +1075,6 @@ const uint16_t* display::frame() { return nullptr; }
 int display::side() { return 0; }
 void display::preview(const String&) {}
 void display::setLowPower(bool) {}
+void display::button() { player::togglePause(); }
 bool display::lowPower() { return false; }
 #endif

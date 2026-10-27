@@ -92,10 +92,12 @@ static void audioTask(void*) {
 
 // The play report goes to Radio Browser over TLS: its own short-lived task,
 // so neither the decoder nor the screen waits for it.
+static volatile bool reporting = false;   // one report at a time: quick drifts must not pile them up
 static void reportTask(void* p) {
   String* id = (String*)p;
   directory::reportPlay(*id);
   delete id;
+  reporting = false;
   vTaskDelete(nullptr);
 }
 
@@ -300,8 +302,11 @@ void loop() {
   if (justConnected) {
     justConnected = false;
     remember();
-    String* id = new String(cur.id);
-    if (xTaskCreate(reportTask, "report", 12288, id, 1, nullptr) != pdPASS) delete id;
+    if (!reporting) {
+      reporting = true;
+      String* id = new String(cur.id);
+      if (xTaskCreate(reportTask, "report", 12288, id, 1, nullptr) != pdPASS) { delete id; reporting = false; }
+    }
   }
   if (isConnecting && !pendingSet && millis() - connectAt > 1500) {
     bool running = audio.isRunning() && audio.inBufferFilled() > 4096;

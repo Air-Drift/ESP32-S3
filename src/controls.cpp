@@ -1,6 +1,7 @@
 #include "controls.h"
 #include "config.h"
 #include "player.h"
+#include "display.h"
 #include <Arduino.h>
 
 struct Button { int pin; bool down = false; unsigned long at = 0; };
@@ -39,7 +40,7 @@ void controls::begin() {
 }
 
 void controls::loop() {
-  if (pressed(btnPlay)) player::togglePause();
+  if (pressed(btnPlay)) display::button();   // a menu on the round screen; play/pause without one
   if (pressed(btnNext)) player::next();
   if (pressed(btnPrev)) player::prev();
   if (encDelta) {
