@@ -21,6 +21,10 @@
 #include <esp_lcd_panel_io.h>
 #include <esp_heap_caps.h>
 #include "boards/waveshare185_init.h"
+#include "boards/guition_w518_init.h"
+#ifndef PANEL_INIT
+#define PANEL_INIT waveshare185_st77916_init   // the 1.85's, which the knob shares
+#endif
 #include "net.h"
 #include "directory.h"
 #include "player.h"
@@ -120,7 +124,7 @@ static void resetPanelAndTouch() {
   delay(20);
   tcaWrite(0x01, bits);
 #else
-  // The knob has no expander: both reset lines are plain pins.
+  // The Guition boards have no expander: both reset lines are plain pins.
   pinMode(PIN_LCD_RST, OUTPUT); pinMode(PIN_TP_RST, OUTPUT);
   digitalWrite(PIN_LCD_RST, LOW); digitalWrite(PIN_TP_RST, LOW);
   delay(20);
@@ -169,7 +173,7 @@ static bool panelBegin() {
   cfg.flags.quad_mode = 1;
   if (esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &cfg, &io) != ESP_OK) { Serial.println("[display] panel IO failed"); return false; }
 
-  for (const PanelCmd& c : waveshare185_st77916_init) {
+  for (const PanelCmd& c : PANEL_INIT) {
     panelCmd(c.cmd, c.len ? c.data : nullptr, c.len);
     if (c.delayMs) delay(c.delayMs);
   }

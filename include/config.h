@@ -126,6 +126,57 @@
 #define PIN_TP_RST    10
 #define CST816_ADDR   0x15
 
+#elif defined(BOARD_GUITION_W518)
+// ======================================================================
+// Guition JC3636W518C: a round touch screen with a 3.5 mm jack, no knob and
+// no battery. Pins from clowrey's ESPHome config for the board.
+// ======================================================================
+#define BOARD_NAME   "Guition JC3636W518C"
+#define HAS_DISPLAY  1
+#define PANEL_INIT   guition_w518_st77916_init   // its own glass: see boards/guition_w518_init.h
+
+// An I2S DAC that needs no setup, to the jack. GPIO 48 is the amplifier's
+// mute, held high for sound as the ESPHome config does.
+#define PIN_I2S_BCLK  18
+#define PIN_I2S_LRC   16
+#define PIN_I2S_DOUT  17
+#define PIN_I2S_MCLK  21
+#define PIN_PA_EN     48
+
+// No buttons (BOOT is in a pinhole) and no knob: the screen does it all, and
+// a long press opens the menu.
+#define PIN_BTN_PLAY  -1
+#define PIN_BTN_NEXT  -1
+#define PIN_BTN_PREV  -1
+#define PIN_ENC_A     -1
+#define PIN_ENC_B     -1
+#define LONG_PRESS_MENU 1
+
+// USB power only: nothing to hold, no battery to read.
+#define PIN_PWR_HOLD  -1
+
+// The one I2C bus is the touch's.
+#define PIN_SYS_SDA   7
+#define PIN_SYS_SCL   8
+
+// ST77916 panel over QSPI, resets on plain pins.
+#define PIN_LCD_CS    10
+#define PIN_LCD_SCK   9
+#define PIN_LCD_D0    11
+#define PIN_LCD_D1    12
+#define PIN_LCD_D2    13
+#define PIN_LCD_D3    14
+#define PIN_LCD_BL    15
+#define PIN_LCD_RST   47
+#define LCD_SIZE      360
+
+// CST816 touch, with its own reset.
+#define PIN_TP_SDA    7
+#define PIN_TP_SCL    8
+#define PIN_TP_INT    41
+#define PIN_TP_RST    40
+#define CST816_ADDR   0x15
+
 #else
 // ======================================================================
 // The custom build: an ESP32-S3 DevKitC on a breadboard.
