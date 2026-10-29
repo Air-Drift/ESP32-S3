@@ -42,6 +42,7 @@
 // The battery through a 200K/100K divider. Charging and USB are not wired to
 // any pin; the charge LED is the charger chip's own.
 #define PIN_BAT_ADC   8
+#define BAT_SCALE     (3.0f / 0.9945f)
 
 // System I2C: TCA9554 expander (0x20), IMU, RTC.
 #define PIN_SYS_SDA   11
@@ -101,6 +102,10 @@
 
 // An on/off switch, so nothing to hold.
 #define PIN_PWR_HOLD  -1
+// The battery through a 10K/10K divider. As on the 1.85, charging is not
+// wired to any pin.
+#define PIN_BAT_ADC   1
+#define BAT_SCALE     2.0f
 
 // The one I2C bus: the touch, and a DRV2605 vibration driver (0x5A) that
 // Air Drift does not use.
