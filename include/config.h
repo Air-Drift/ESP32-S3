@@ -85,7 +85,7 @@
 #define PIN_I2S_MCLK  -1
 #define PIN_PA_EN     -1
 #define PIN_DAC_SEL   0
-#define DAC_SEL_S3    HIGH
+#define DAC_SEL_S3    HIGH   // checked on the board: high gives the S3 the jack
 
 // No buttons. The screen opens the menu with a long press instead.
 #define PIN_BTN_PLAY  -1
