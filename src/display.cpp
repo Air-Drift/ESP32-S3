@@ -1072,6 +1072,16 @@ void display::button() {
   uiEpoch++;
 }
 
+// The knob: the volume, shown as a touch on − or + shows it. Like a touch,
+// a turn brings the screen back from the visualiser or low-power sleep.
+void display::knob(int steps) {
+  if (!io) { player::setVolume(player::volume() + steps); return; }
+  touchAt = millis();
+  if (viz) { viz = false; spectrum::enable(false); uiEpoch++; }
+  if (asleep) { asleep = false; ledcWrite(PIN_LCD_BL, 220); uiEpoch++; }
+  volumeBy(steps);
+}
+
 void display::preview(const String& name) {
   if (name == "viz") { touchAt = 0; screen = HOME; previewName = ""; uiEpoch++; return; }   // shows once it may
   previewName = name == "off" ? "" : name;
@@ -1088,5 +1098,6 @@ int display::side() { return 0; }
 void display::preview(const String&) {}
 void display::setLowPower(bool) {}
 void display::button() { player::togglePause(); }
+void display::knob(int steps) { player::setVolume(player::volume() + steps); }
 bool display::lowPower() { return false; }
 #endif
