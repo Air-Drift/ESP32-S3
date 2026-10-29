@@ -66,6 +66,66 @@
 #define PIN_TP_INT    4
 #define CST816_ADDR   0x15
 
+#elif defined(BOARD_GUITION_KNOB)
+// ======================================================================
+// Guition JC3636K518C: a round touch screen set in a knob. Waveshare sells
+// the same board as the ESP32-S3-Knob-Touch-LCD-1.8. Pins from its
+// schematic, and from a port that runs on this board.
+// ======================================================================
+#define BOARD_NAME   "Guition JC3636K518C"
+#define HAS_DISPLAY  1
+
+// A PCM5100A to the 3.5 mm jack: plain I2S, no codec setup, no amplifier.
+// Both chips are wired to it through a CH445P switch, and GPIO 0 picks which
+// one it hears (see player.cpp). That makes GPIO 0 an output here, not a
+// button.
+#define PIN_I2S_BCLK  39
+#define PIN_I2S_LRC   40
+#define PIN_I2S_DOUT  41
+#define PIN_I2S_MCLK  -1
+#define PIN_PA_EN     -1
+#define PIN_DAC_SEL   0
+#define DAC_SEL_S3    HIGH
+
+// No buttons. The screen opens the menu with a long press instead.
+#define PIN_BTN_PLAY  -1
+#define PIN_BTN_NEXT  -1
+#define PIN_BTN_PREV  -1
+#define LONG_PRESS_MENU 1
+
+// The knob is two switches rather than a quadrature encoder: one direction
+// pulses A, the other pulses B (see controls.cpp). 10K pull-ups on the board.
+#define PIN_ENC_A     8
+#define PIN_ENC_B     7
+#define KNOB_TWO_SWITCH 1
+
+// An on/off switch, so nothing to hold.
+#define PIN_PWR_HOLD  -1
+
+// The one I2C bus: the touch, and a DRV2605 vibration driver (0x5A) that
+// Air Drift does not use.
+#define PIN_SYS_SDA   11
+#define PIN_SYS_SCL   12
+
+// ST77916 panel over QSPI, the same panel and init as the 1.85's, with its
+// reset on a pin of its own rather than an expander.
+#define PIN_LCD_CS    14
+#define PIN_LCD_SCK   13
+#define PIN_LCD_D0    15
+#define PIN_LCD_D1    16
+#define PIN_LCD_D2    17
+#define PIN_LCD_D3    18
+#define PIN_LCD_BL    47
+#define PIN_LCD_RST   21
+#define LCD_SIZE      360
+
+// CST816 touch, on the bus above, with its own reset.
+#define PIN_TP_SDA    11
+#define PIN_TP_SCL    12
+#define PIN_TP_INT    9
+#define PIN_TP_RST    10
+#define CST816_ADDR   0x15
+
 #else
 // ======================================================================
 // The custom build: an ESP32-S3 DevKitC on a breadboard.
