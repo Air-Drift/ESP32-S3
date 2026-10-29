@@ -415,6 +415,13 @@ static void touchLoop() {
         abs(pxl - px0) < 30 && abs(pyl - py0) < 30) {
       held = true; act("about");          // hold the logo: the connect screen
     }
+#if LONG_PRESS_MENU
+    // No button on this board: a still finger, held, does what the button does.
+    if (!held && !power::standby() && pressed != "vol-" && pressed != "vol+" && millis() - t0 >= 1000 &&
+        abs(pxl - px0) < 30 && abs(pyl - py0) < 30) {
+      held = true; display::button();
+    }
+#endif
   } else if (!fingers && down) {
     down = false;
     int dx = pxl - px0, dy = pyl - py0;
