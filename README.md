@@ -7,7 +7,7 @@
 <p align="center">
   <strong>A little radio for the whole world.</strong><br>
   Firmware that turns an ESP32-S3 board into an internet radio playing the 60,000 stations of
-  <a href="https://airdrift.stream">airdrift.stream</a>: on a Waveshare board with a round touch screen,
+  <a href="https://airdrift.stream">airdrift.stream</a>: on a Waveshare or Guition board with a round touch screen,
   or on a dev board with a knob, two speakers and some soldering.
 </p>
 
@@ -15,7 +15,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-46d98a" alt="MIT licence"></a>
   <a href="https://airdrift.stream"><img src="https://img.shields.io/badge/stations-60%2C000%2B-46d98a" alt="More than 60,000 radio stations"></a>
   <a href="https://platformio.org"><img src="https://img.shields.io/badge/built%20with-PlatformIO-46d98a" alt="Built with PlatformIO"></a>
-  <a href="#the-two-radios"><img src="https://img.shields.io/badge/boards-Waveshare%201.85%20%7C%20DevKitC-46d98a" alt="Waveshare ESP32-S3-Touch-LCD-1.85 and ESP32-S3-DevKitC"></a>
+  <a href="#the-radios"><img src="https://img.shields.io/badge/boards-Waveshare%201.85%20%7C%20Guition%20%7C%20DevKitC-46d98a" alt="Waveshare ESP32-S3-Touch-LCD-1.85, Guition JC3636K518C and JC3636W518C, and ESP32-S3-DevKitC"></a>
 </p>
 
 ---
@@ -44,7 +44,7 @@ board in by USB, press one button in Chrome or Edge, and it is a radio.
 ## Contents
 
 - [What you get](#what-you-get)
-- [The two radios](#the-two-radios)
+- [The radios](#the-radios)
 - [Quick start](#quick-start)
 - [The screen](#the-screen)
 - [The web page](#the-web-page)
@@ -93,28 +93,34 @@ board in by USB, press one button in Chrome or Edge, and it is a radio.
   for lists, to Radio Browser for search and play counts, and to the station
   you are listening to.
 
-## The two radios
+## The radios
 
-One codebase, two PlatformIO environments.
+One codebase, one PlatformIO environment per board. Three are ready-made
+boards with the same round 360×360 touch screen; the fourth is a build of
+your own.
 
-| | **The self-contained unit** | **The custom build** |
-|---|---|---|
-| Env | `waveshare-185` | `devkit` (`devkit-quad` for quad PSRAM) |
-| Board | [Waveshare ESP32-S3-Touch-LCD-1.85](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85), either revision | ESP32-S3-DevKitC-1 with PSRAM (N16R8 is the usual one) |
-| Sound | the board's own codec and amplifier; plug a speaker into its header | a PCM5102A DAC into a TPA3116D2 amplifier and two speakers |
-| Controls | the round 360×360 touch screen | a rotary encoder (volume, push for play/pause) and two buttons |
-| Setup | by QR code on the screen | from the serial console, or the same setup network |
-| Soldering | none | yes, see [The custom build](#the-custom-build) |
+| | **Waveshare 1.85** | **Guition knob** | **Guition W518** | **The custom build** |
+|---|---|---|---|---|
+| Env | `waveshare-185` | `guition-knob` | `guition-w518` | `devkit` (`devkit-quad` for quad PSRAM) |
+| Board | [Waveshare ESP32-S3-Touch-LCD-1.85](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85), either revision | Guition JC3636K518C (Waveshare's ESP32-S3-Knob-Touch-LCD-1.8 looks the same, untested) | Guition JC3636W518C | ESP32-S3-DevKitC-1 with PSRAM (N16R8 is the usual one) |
+| Sound | the board's own codec and amplifier; plug a speaker into its header | a 3.5 mm jack | a 3.5 mm jack | a PCM5102A DAC into a TPA3116D2 amplifier and two speakers |
+| Controls | the touch screen, and BOOT for the menu | the touch screen, and the knob for volume | the touch screen | a rotary encoder (volume, push for play/pause) and two buttons |
+| Power | USB, or its battery | USB, or its battery | USB | USB |
+| Setup | by QR code on the screen | by QR code on the screen | by QR code on the screen | from the serial console, or the same setup network |
+| Soldering | none | none | none | yes, see [The custom build](#the-custom-build) |
 
-Both are driven the same way from the web page, the console and the API, and
-both play the same stations.
+All are driven the same way from the web page, the console and the API, and
+all play the same stations. The Guition boards have no button you can reach:
+hold a still finger on the screen for a second to open the menu.
 
 ## Quick start
 
 **Nothing to build.** The easiest way is the installer at
 **[airdrift.stream/esp32](https://airdrift.stream/esp32)**: plug the board in
 by USB, open the page in Chrome or Edge on a computer, press **Install on my
-board** and pick its port. It writes the newest release, for either board.
+board** and pick its port. It writes the newest release for the Waveshare
+board or a DevKitC; the Guition boards are not in it yet, so for those use
+the terminal below.
 
 Or from a terminal: every release on the
 [Releases page](https://github.com/Air-Drift/ESP32-S3/releases) has a
@@ -136,6 +142,11 @@ When the screen lights up,
 follow it: scan the QR code with your phone, pick your WiFi, done. From then
 on the radio is at **http://airdrift.local** on your network and on its own
 screen, and later releases install from its Device tab without a cable.
+
+For the Guition boards, the same with `airdrift-guition-knob-full.bin` or
+`airdrift-guition-w518-full.bin`. The knob's USB-C port reaches one of its
+two chips depending on which way the plug is turned: turn it until the
+computer sees *Espressif USB JTAG/serial debug unit*, not a CH340.
 
 For the custom build, the same with `airdrift-devkit-full.bin`
 (or `airdrift-devkit-quad-full.bin` for a board with quad PSRAM), then see
@@ -174,7 +185,9 @@ in the ring's gap at the bottom.
 Volume buttons repeat while held. A tap on the logo always leads home; holding
 it shows the connect screen, with the page's address, the WiFi signal and the
 firmware version. Plugged in to charge, the radio starts on a charge screen
-rather than playing; a touch or the button starts the radio.
+rather than playing; a touch or the button starts the radio. On the Guition
+boards, which have no button to reach, a finger held still for a second
+opens the menu.
 
 ## The web page
 
@@ -320,6 +333,8 @@ the Arduino core is 3.x, which the audio library needs.
 | Env | Board |
 |---|---|
 | `waveshare-185` | Waveshare ESP32-S3-Touch-LCD-1.85 and 1.85C |
+| `guition-knob` | Guition JC3636K518C, the knob |
+| `guition-w518` | Guition JC3636W518C |
 | `devkit` (default) | DevKitC with octal PSRAM: N16R8, N8R8 |
 | `devkit-quad` | DevKitC with quad PSRAM: N8R2, N4R2 |
 

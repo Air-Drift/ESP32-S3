@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [waveshare-185, devkit, devkit-quad]
+        env: [waveshare-185, guition-knob, guition-w518, devkit, devkit-quad]
     steps:
       - uses: actions/checkout@v4
 
@@ -123,6 +123,8 @@ jobs:
           | Board | Full image (new board, address 0) | App only (Device tab update) |
           |---|---|---|
           | Waveshare ESP32-S3-Touch-LCD-1.85 / 1.85C | \`airdrift-waveshare-185-$v-full.bin\` | \`airdrift-waveshare-185-$v.bin\` |
+          | Guition JC3636K518C (the knob) | \`airdrift-guition-knob-$v-full.bin\` | \`airdrift-guition-knob-$v.bin\` |
+          | Guition JC3636W518C | \`airdrift-guition-w518-$v-full.bin\` | \`airdrift-guition-w518-$v.bin\` |
           | DevKitC with octal PSRAM (N16R8, N8R8) | \`airdrift-devkit-$v-full.bin\` | \`airdrift-devkit-$v.bin\` |
           | DevKitC with quad PSRAM (N8R2, N4R2) | \`airdrift-devkit-quad-$v-full.bin\` | \`airdrift-devkit-quad-$v.bin\` |
 
