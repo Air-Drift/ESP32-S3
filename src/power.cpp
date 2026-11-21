@@ -95,6 +95,17 @@ static bool hostPresent() {
 #endif
 }
 
+// On a cable of any kind. A computer announces itself on the USB port, but a
+// wall charger only gives power, and no pin sees that. On the 1.85C the cell
+// is read after the battery switch, though: running with no cell to read,
+// the board can only be powered by its cable.
+static bool onCable() {
+#ifdef PIN_BAT_ADC
+  if (mv <= 2500) return true;
+#endif
+  return hostPresent();
+}
+
 void power::begin() {
 #if PIN_PWR_HOLD >= 0
   pinMode(PIN_PWR_HOLD, OUTPUT);
@@ -107,8 +118,8 @@ void power::begin() {
   // the radio was already on. A computer takes a moment to start talking.
   unsigned long t0 = millis();
   if (esp_reset_reason() == ESP_RST_POWERON) {
-    while (!hostPresent() && millis() - t0 < 1500) delay(20);
-    standing = hostPresent();
+    while (!onCable() && millis() - t0 < 1500) delay(20);
+    standing = onCable();
   }
   prefs.begin("battery", false);
   liftMv = prefs.getShort("liftMv", 50);
@@ -171,7 +182,7 @@ int power::percent() {
 #endif
 }
 
-bool power::usb() { return hostPresent(); }
+bool power::usb() { return onCable(); }
 bool power::standby() { return standing; }
 void power::wake() { standing = false; }
 

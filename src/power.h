@@ -9,7 +9,7 @@ namespace power {
   void loop();
   int  millivolts();    // the battery, smoothed; 0 without one
   int  percent();       // 0..100, or -1 without a battery
-  bool usb();           // a computer is on the USB port
+  bool usb();           // on a cable: a computer, or any charger with the battery switch off
   bool standby();       // on the charge screen: no WiFi, no radio yet
   void wake();          // leave the charge screen and start the radio
   // What it has learned about this battery (see power.cpp).

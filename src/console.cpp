@@ -130,7 +130,7 @@ static void run(const String& cmd) {
 
   if (op == "battery") {
     if (w.size() > 1 && w[1] == "forget") { power::forget(); Serial.println("forgot this battery: back to the generic table"); return; }
-    Serial.printf("battery: %d mV, %d%%, USB host %s\n", power::millivolts(), power::percent(), power::usb() ? "yes" : "no");
+    Serial.printf("battery: %d mV, %d%%, on cable %s\n", power::millivolts(), power::percent(), power::usb() ? "yes" : "no");
     Serial.printf("learned: charging lifts it %d mV; curve %s; run being recorded %d min\n",
                   power::lift(), power::learned() ? "this battery's own" : "generic (no full run yet)", power::runMinutes());
     return;
