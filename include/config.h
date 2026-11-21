@@ -43,6 +43,9 @@
 // any pin; the charge LED is the charger chip's own.
 #define PIN_BAT_ADC   8
 #define BAT_SCALE     (3.0f / 0.9945f)
+// The 1.85C reads the cell after its battery switch: switched off, there is
+// no cell to read, and running so, the board can only be on its cable.
+#define BAT_AFTER_SWITCH 1
 
 // System I2C: TCA9554 expander (0x20), IMU, RTC.
 #define PIN_SYS_SDA   11

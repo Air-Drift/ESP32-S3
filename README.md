@@ -184,8 +184,11 @@ in the ring's gap at the bottom.
 
 Volume buttons repeat while held. A tap on the logo always leads home; holding
 it shows the connect screen, with the page's address, the WiFi signal and the
-firmware version. Plugged in to charge, the radio starts on a charge screen
-rather than playing; a touch or the button starts the radio. On the Guition
+firmware version. Switched on by plugging it in to charge, the radio starts
+on a charge screen rather than playing; a touch or the button starts the
+radio. The Waveshare 1.85C does this with any charger while its battery
+switch is off; the Guition knob, which cannot see a charger, only when the
+cable is from a computer. On the Guition
 boards, which have no button to reach, a finger held still for a second
 opens the menu.
 
@@ -506,8 +509,8 @@ captive portal; the pages are Air Drift's own), and for the screen
 Found a bug, or want to add something? Pull requests are welcome.
 
 - **Fixes and features:** fork the repository, make the change on a branch and
-  open a pull request against `main`. Both envs should still build
-  (`pio run -e waveshare-185 && pio run -e devkit`).
+  open a pull request against `main`. Every board should still build
+  (`pio run -e waveshare-185 -e guition-knob -e guition-w518 -e devkit`).
 - **Bugs you cannot fix yourself:**
   [open an issue](https://github.com/Air-Drift/ESP32-S3/issues) with the
   board, the firmware version from the Device tab, and what the serial

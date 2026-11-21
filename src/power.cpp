@@ -97,11 +97,12 @@ static bool hostPresent() {
 }
 
 // On a cable of any kind. A computer announces itself on the USB port, but a
-// wall charger only gives power, and no pin sees that. On the 1.85C the cell
-// is read after the battery switch, though: running with no cell to read,
-// the board can only be powered by its cable.
+// wall charger only gives power, and no pin sees that. On a board that reads
+// its cell after the battery switch (BAT_AFTER_SWITCH: the 1.85C), running
+// with no cell to read means only the cable can be powering it. Elsewhere no
+// reading may just mean no battery, so only a computer counts.
 static bool onCable() {
-#ifdef PIN_BAT_ADC
+#if defined(PIN_BAT_ADC) && BAT_AFTER_SWITCH
   if (mv <= 2500) return true;
 #endif
   return hostPresent();
