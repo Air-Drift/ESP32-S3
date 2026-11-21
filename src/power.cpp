@@ -3,10 +3,11 @@
 #include <Preferences.h>
 
 #ifdef PIN_BAT_ADC
-// The cell feeds GPIO 8 through a 200K/100K divider, so the pin sees a third
-// of it; Waveshare's own demo trims the result by 0.9945. On the 1.85C the
-// divider hangs after the battery switch: switched off, the cell still
-// charges but cannot be measured.
+// The cell feeds the pin through a divider, and BAT_SCALE undoes it. On the
+// 1.85 that is 200K/100K on GPIO 8, a third, which Waveshare's own demo trims
+// by 0.9945; on the 1.85C the divider hangs after the battery switch, so
+// switched off the cell still charges but cannot be measured. On the knob it
+// is 10K/10K on GPIO 1, a half.
 static float mv = 0;                 // smoothed, at the cell
 static unsigned long lastRead = 0;
 static Preferences prefs;            // "battery": what this radio has haveCurve about its cell
@@ -14,7 +15,7 @@ static Preferences prefs;            // "battery": what this radio has haveCurve
 static float readCell() {
   uint32_t sum = 0;
   for (int i = 0; i < 8; i++) sum += analogReadMilliVolts(PIN_BAT_ADC);
-  return sum / 8.0f * 3.0f / 0.9945f;
+  return sum / 8.0f * BAT_SCALE;
 }
 
 // ---- Learning the cell -------------------------------------------------

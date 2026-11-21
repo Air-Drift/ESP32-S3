@@ -13,4 +13,5 @@ namespace display {
   void setLowPower(bool on);       // the screen sleeps while a station plays, instead of the visualiser
   bool lowPower();
   void button();                   // the radio's own button: opens the menu (pausing), or closes it (resuming)
+  void knob(int steps);            // the radio's own knob turned (positive = louder): the volume, shown on the screen
 }

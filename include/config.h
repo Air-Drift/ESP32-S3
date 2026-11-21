@@ -42,6 +42,7 @@
 // The battery through a 200K/100K divider. Charging and USB are not wired to
 // any pin; the charge LED is the charger chip's own.
 #define PIN_BAT_ADC   8
+#define BAT_SCALE     (3.0f / 0.9945f)
 
 // System I2C: TCA9554 expander (0x20), IMU, RTC.
 #define PIN_SYS_SDA   11
@@ -64,6 +65,121 @@
 #define PIN_TP_SDA    1
 #define PIN_TP_SCL    3
 #define PIN_TP_INT    4
+#define CST816_ADDR   0x15
+
+#elif defined(BOARD_GUITION_KNOB)
+// ======================================================================
+// Guition JC3636K518C: a round touch screen set in a knob. Waveshare sells
+// the same board as the ESP32-S3-Knob-Touch-LCD-1.8. Pins from its
+// schematic, and from a port that runs on this board.
+// ======================================================================
+#define BOARD_NAME   "Guition JC3636K518C"
+#define HAS_DISPLAY  1
+
+// A PCM5100A to the 3.5 mm jack: plain I2S, no codec setup, no amplifier.
+// Both chips are wired to it through a CH445P switch, and GPIO 0 picks which
+// one it hears (see player.cpp). That makes GPIO 0 an output here, not a
+// button.
+#define PIN_I2S_BCLK  39
+#define PIN_I2S_LRC   40
+#define PIN_I2S_DOUT  41
+#define PIN_I2S_MCLK  -1
+#define PIN_PA_EN     -1
+#define PIN_DAC_SEL   0
+#define DAC_SEL_S3    HIGH   // checked on the board: high gives the S3 the jack
+
+// No buttons. The screen opens the menu with a long press instead.
+#define PIN_BTN_PLAY  -1
+#define PIN_BTN_NEXT  -1
+#define PIN_BTN_PREV  -1
+#define LONG_PRESS_MENU 1
+
+// The knob is two switches rather than a quadrature encoder: one direction
+// pulses A, the other pulses B (see controls.cpp). 10K pull-ups on the board.
+#define PIN_ENC_A     8
+#define PIN_ENC_B     7
+#define KNOB_TWO_SWITCH 1
+
+// An on/off switch, so nothing to hold.
+#define PIN_PWR_HOLD  -1
+// The battery through a 10K/10K divider. As on the 1.85, charging is not
+// wired to any pin.
+#define PIN_BAT_ADC   1
+#define BAT_SCALE     2.0f
+
+// The one I2C bus: the touch, and a DRV2605 vibration driver (0x5A) that
+// Air Drift does not use.
+#define PIN_SYS_SDA   11
+#define PIN_SYS_SCL   12
+
+// ST77916 panel over QSPI, the same panel and init as the 1.85's, with its
+// reset on a pin of its own rather than an expander.
+#define PIN_LCD_CS    14
+#define PIN_LCD_SCK   13
+#define PIN_LCD_D0    15
+#define PIN_LCD_D1    16
+#define PIN_LCD_D2    17
+#define PIN_LCD_D3    18
+#define PIN_LCD_BL    47
+#define PIN_LCD_RST   21
+#define LCD_SIZE      360
+
+// CST816 touch, on the bus above, with its own reset.
+#define PIN_TP_SDA    11
+#define PIN_TP_SCL    12
+#define PIN_TP_INT    9
+#define PIN_TP_RST    10
+#define CST816_ADDR   0x15
+
+#elif defined(BOARD_GUITION_W518)
+// ======================================================================
+// Guition JC3636W518C: a round touch screen with a 3.5 mm jack, no knob and
+// no battery. Pins from clowrey's ESPHome config for the board.
+// ======================================================================
+#define BOARD_NAME   "Guition JC3636W518C"
+#define HAS_DISPLAY  1
+#define PANEL_INIT   guition_w518_st77916_init   // its own glass: see boards/guition_w518_init.h
+
+// An I2S DAC that needs no setup, to the jack. GPIO 48 is the amplifier's
+// mute, held high for sound as the ESPHome config does.
+#define PIN_I2S_BCLK  18
+#define PIN_I2S_LRC   16
+#define PIN_I2S_DOUT  17
+#define PIN_I2S_MCLK  21
+#define PIN_PA_EN     48
+
+// No buttons (BOOT is in a pinhole) and no knob: the screen does it all, and
+// a long press opens the menu.
+#define PIN_BTN_PLAY  -1
+#define PIN_BTN_NEXT  -1
+#define PIN_BTN_PREV  -1
+#define PIN_ENC_A     -1
+#define PIN_ENC_B     -1
+#define LONG_PRESS_MENU 1
+
+// USB power only: nothing to hold, no battery to read.
+#define PIN_PWR_HOLD  -1
+
+// The one I2C bus is the touch's.
+#define PIN_SYS_SDA   7
+#define PIN_SYS_SCL   8
+
+// ST77916 panel over QSPI, resets on plain pins.
+#define PIN_LCD_CS    10
+#define PIN_LCD_SCK   9
+#define PIN_LCD_D0    11
+#define PIN_LCD_D1    12
+#define PIN_LCD_D2    13
+#define PIN_LCD_D3    14
+#define PIN_LCD_BL    15
+#define PIN_LCD_RST   47
+#define LCD_SIZE      360
+
+// CST816 touch, with its own reset.
+#define PIN_TP_SDA    7
+#define PIN_TP_SCL    8
+#define PIN_TP_INT    41
+#define PIN_TP_RST    40
 #define CST816_ADDR   0x15
 
 #else

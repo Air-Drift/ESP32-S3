@@ -3,7 +3,8 @@
 
 #if HAS_DISPLAY
 
-// The round screen on the Waveshare ESP32-S3-Touch-LCD-1.85 / 1.85C.
+// The round screen on the Waveshare ESP32-S3-Touch-LCD-1.85 / 1.85C, and the
+// same panel and touch chip in the Guition JC3636K518C knob.
 //
 // The panel is driven the way Waveshare's own demo drives it: ESP-IDF's
 // esp_lcd SPI panel IO in quad mode, commands as 0x02 00 cc 00, pixels as
@@ -20,6 +21,10 @@
 #include <esp_lcd_panel_io.h>
 #include <esp_heap_caps.h>
 #include "boards/waveshare185_init.h"
+#include "boards/guition_w518_init.h"
+#ifndef PANEL_INIT
+#define PANEL_INIT waveshare185_st77916_init   // the 1.85's, which the knob shares
+#endif
 #include "net.h"
 #include "directory.h"
 #include "player.h"
@@ -101,19 +106,30 @@ static void brand(int cy, int tile, int cx = C) {
   gfx->setCursor(x + tile + gap + w1, ty); gfx->setTextColor(ACCENT); gfx->print("drift");
 }
 
-// ---- TCA9554 expander: the panel's and touch's reset lines live on it. ----
+// ---- Resets. On the Waveshare board the panel's and touch's reset lines
+// live on a TCA9554 expander. ----
+#ifdef TCA9554_ADDR
 static void tcaWrite(uint8_t reg, uint8_t v) {
   Wire.beginTransmission(TCA9554_ADDR);
   Wire.write(reg); Wire.write(v);
   Wire.endTransmission();
 }
+#endif
 
 static void resetPanelAndTouch() {
+#ifdef TCA9554_ADDR
   uint8_t bits = (1 << EXIO_TP_RST) | (1 << EXIO_LCD_RST);
   tcaWrite(0x03, (uint8_t)~bits);  // those two as outputs, the rest inputs
   tcaWrite(0x01, 0x00);
   delay(20);
   tcaWrite(0x01, bits);
+#else
+  // The Guition boards have no expander: both reset lines are plain pins.
+  pinMode(PIN_LCD_RST, OUTPUT); pinMode(PIN_TP_RST, OUTPUT);
+  digitalWrite(PIN_LCD_RST, LOW); digitalWrite(PIN_TP_RST, LOW);
+  delay(20);
+  digitalWrite(PIN_LCD_RST, HIGH); digitalWrite(PIN_TP_RST, HIGH);
+#endif
   delay(120);
 }
 
@@ -157,7 +173,7 @@ static bool panelBegin() {
   cfg.flags.quad_mode = 1;
   if (esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &cfg, &io) != ESP_OK) { Serial.println("[display] panel IO failed"); return false; }
 
-  for (const PanelCmd& c : waveshare185_st77916_init) {
+  for (const PanelCmd& c : PANEL_INIT) {
     panelCmd(c.cmd, c.len ? c.data : nullptr, c.len);
     if (c.delayMs) delay(c.delayMs);
   }
@@ -403,6 +419,13 @@ static void touchLoop() {
         abs(pxl - px0) < 30 && abs(pyl - py0) < 30) {
       held = true; act("about");          // hold the logo: the connect screen
     }
+#if LONG_PRESS_MENU
+    // No button on this board: a still finger, held, does what the button does.
+    if (!held && !power::standby() && pressed != "vol-" && pressed != "vol+" && millis() - t0 >= 1000 &&
+        abs(pxl - px0) < 30 && abs(pyl - py0) < 30) {
+      held = true; display::button();
+    }
+#endif
   } else if (!fingers && down) {
     down = false;
     int dx = pxl - px0, dy = pyl - py0;
@@ -1060,6 +1083,16 @@ void display::button() {
   uiEpoch++;
 }
 
+// The knob: the volume, shown as a touch on − or + shows it. Like a touch,
+// a turn brings the screen back from the visualiser or low-power sleep.
+void display::knob(int steps) {
+  if (!io) { player::setVolume(player::volume() + steps); return; }
+  touchAt = millis();
+  if (viz) { viz = false; spectrum::enable(false); uiEpoch++; }
+  if (asleep) { asleep = false; ledcWrite(PIN_LCD_BL, 220); uiEpoch++; }
+  volumeBy(steps);
+}
+
 void display::preview(const String& name) {
   if (name == "viz") { touchAt = 0; screen = HOME; previewName = ""; uiEpoch++; return; }   // shows once it may
   previewName = name == "off" ? "" : name;
@@ -1076,5 +1109,6 @@ int display::side() { return 0; }
 void display::preview(const String&) {}
 void display::setLowPower(bool) {}
 void display::button() { player::togglePause(); }
+void display::knob(int steps) { player::setVolume(player::volume() + steps); }
 bool display::lowPower() { return false; }
 #endif

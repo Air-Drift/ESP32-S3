@@ -134,6 +134,14 @@ void player::begin() {
   pinMode(PIN_PA_EN, OUTPUT);
   digitalWrite(PIN_PA_EN, HIGH);
 #endif
+#ifdef PIN_DAC_SEL
+  // The knob's DAC is wired to both of its chips through a CH445P switch:
+  // its IN pin connects the PCM5100A to the S3's I2S lines (S2) or the second
+  // ESP32's (S1). GPIO 0 is a strapping pin with a pull-up, so driving it
+  // once booted is safe.
+  pinMode(PIN_DAC_SEL, OUTPUT);
+  digitalWrite(PIN_DAC_SEL, DAC_SEL_S3);
+#endif
   audio.setPinout(PIN_I2S_BCLK, PIN_I2S_LRC, PIN_I2S_DOUT, PIN_I2S_MCLK >= 0 ? PIN_I2S_MCLK : I2S_GPIO_UNUSED);
   // The codec follows the master clock at any rate, so streams play at their
   // own rate: the library's resampler falls behind real time (`resample on`
